@@ -1,0 +1,16 @@
+{
+  "name": "StockWatch OS - Kulkas Pintar & AI Vision",
+  "short_name": "StockWatch",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#10b981",
+  "description": "Pelacak stok kulkas pintar, pencegah food waste, Smart Camera AI Gemma 4, dan resep anti-mubazir.",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥦</text></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
