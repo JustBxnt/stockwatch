@@ -45,7 +45,25 @@ Aplikasi dilengkapi dengan bilah navigasi terpadu (*bottom navigation*) dengan 5
 - **Local-First Offline Storage**:
   - Data tersimpan aman di peramban lokal (IndexedDB / LocalStorage) sehingga tetap dapat digunakan di dapur meski tanpa sinyal internet.
   - Tombol **💾 Ekspor Data (JSON)** untuk backup data inventori.
-  - Tombol **🔄 Impor Cadangan** untuk pemulihan data.
+  - Tombol **🔄 Impor Cadangan** dengan dialog file JSON untuk pemulihan data instan.
+
+---
+
+## 🔄 Alur Integrasi & Sinkronisasi Antar-Layar (Reactive Sync)
+
+Semua layar dalam StockWatch OS terintegrasi secara *real-time* ke satu pusat data (*single source of truth*):
+
+1. **Audit Kulkas (60s) ➡️ Stok & Daftar Belanja**:
+   - Memilih *"Sudah Dimasak!"* otomatis memotong bahan dari kulkas dan menambah saldo hemat finansial (+Rp 15.000).
+   - Memilih *"Terlanjur Dibuang"* memotong bahan basi dan otomatis memasukkannya ke Daftar Belanja minggu depan.
+2. **Daftar Belanja ➡️ Stok Kulkas**:
+   - Mencentang barang yang telah dibeli langsung menambahkan bahan tersebut ke rak kulkas tanpa perlu mengetik ulang.
+3. **Quick Add / AI Scanner ➡️ Stok Kulkas**:
+   - Kontrol kuantitas (`-` / `+`) secara dinamis mengubah estimasi ROI pasar lokal dan memasukkan jumlah yang tepat ke inventori saat konfirmasi.
+4. **Olah Resep ➡️ Finansial & Bahan**:
+   - Tombol masak menu resep otomatis mengosongkan bahan yang digunakan dan mengakumulasikan nilai rupiah bahan yang diselamatkan.
+5. **Manajemen Bahan (Edit & Hapus)**:
+   - Ikon pensil (✏️) pada kartu stok membuka dialog modal untuk memperbarui kuantitas, zona rak, atau menghapus item.
 
 ---
 
