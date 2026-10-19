@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import SettingsModal from "@/components/SettingsModal";
 import RecipeModal from "@/components/RecipeModal";
 import ManualAddModal from "@/components/ManualAddModal";
@@ -36,6 +36,19 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<"dashboard" | "quickadd" | "olah" | "belanja" | "setting">("dashboard");
   const [financialSaved, setFinancialSaved] = useState<number>(285000);
 
+  // Weekend Fridge Audit State (Figma 04)
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
+  const [auditStep, setAuditStep] = useState(0);
+
+  // Edit Item State
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+
+  // QuickAdd Scanner state
+  const [scanQty, setScanQty] = useState(2);
+
+  // Offline file input ref for settings
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Settings PWA States
   const [settingsToggles, setSettingsToggles] = useState({
     webPush: true,
@@ -63,8 +76,29 @@ export default function Home() {
     showToast("Data inventori berhasil diekspor (JSON)!", "💾");
   };
 
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target?.result as string);
+        if (Array.isArray(imported) && imported.length > 0) {
+          setItems(imported);
+          showToast(`Berhasil mengimpor ${imported.length} bahan dari cadangan!`, "🎉");
+        } else {
+          showToast("Format file JSON tidak sesuai", "⚠️");
+        }
+      } catch (err) {
+        showToast("Gagal membaca file JSON", "❌");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   const handleImportData = () => {
-    showToast("Fitur impor cadangan offline siap digunakan", "🔄");
+    fileInputRef.current?.click();
   };
 
   // Shopping List States matching Figma exactly
@@ -121,7 +155,29 @@ export default function Home() {
         if (item.id === id) {
           const nextChecked = !item.checked;
           if (nextChecked) {
-            showToast(`${item.name} dibeli! Otomatis masuk stok kulkas.`, "🛒");
+            // Automatically add to inventory
+            const cleanName = item.name.split("(")[0].trim();
+            const cleanQty = item.name.includes("(")
+              ? item.name.split("(")[1].replace(")", "").trim()
+              : "1 porsi";
+            const autoItem: InventoryItem = {
+              id: Date.now(),
+              name: cleanName,
+              qty: cleanQty,
+              expiryText: "7 Hari Lagi",
+              expiryColor: "text-[#059669]",
+              borderColor: "border-l-[#059669]",
+              location: "Kulkas Utama",
+              locationIcon: "❄️",
+              category: "cook",
+              locationType: "fridge",
+              iconEmoji: item.name.includes("Telur") ? "🥚" : item.name.includes("Tahu") ? "🧈" : item.name.includes("Susu") ? "🥛" : "🧅",
+              actionIcon: "edit",
+            };
+            setItems((prevItems) => [autoItem, ...prevItems]);
+            showToast(`🛒 "${item.name}" dibeli! Otomatis masuk stok kulkas.`, "✨");
+          } else {
+            showToast(`Status "${item.name}" dikembalikan`, "↩️");
           }
           return {
             ...item,
@@ -180,7 +236,22 @@ export default function Home() {
 
   const handleCookRecipe = (recipeName: string, financialValue: number, itemNames: string[]) => {
     setFinancialSaved((prev) => prev + financialValue);
-    showToast(`Menu "${recipeName}" berhasil dimasak! Hemat Finansial +Rp ${financialValue.toLocaleString("id-ID")}`, "🍳");
+    setItems((prevItems) =>
+      prevItems.filter(
+        (item) =>
+          !itemNames.some(
+            (used) =>
+              item.name.toLowerCase().includes(used.toLowerCase()) ||
+              used.toLowerCase().includes(item.name.toLowerCase())
+          )
+      )
+    );
+    showToast(
+      `🎉 Menu "${recipeName}" berhasil dimasak! Finansial +Rp ${financialValue.toLocaleString(
+        "id-ID"
+      )}, bahan kulkas otomatis berkurang.`,
+      "🍳"
+    );
   };
 
   // Sample Inventory exactly matching the Figma design
@@ -264,11 +335,26 @@ export default function Home() {
   });
 
   const handleSimpanItem = () => {
-    showToast("Kangkung Segar berhasil disimpan ke Kulkas Sayur!", "✨");
+    const newItem: InventoryItem = {
+      id: Date.now(),
+      name: "Kangkung Segar",
+      qty: `${scanQty} ikat`,
+      expiryText: "3 Hari Lagi (H-3)",
+      expiryColor: "text-[#D97706]",
+      borderColor: "border-l-[#D97706]",
+      location: "Kulkas Sayur",
+      locationIcon: "❄️",
+      category: "cook",
+      locationType: "fridge",
+      iconEmoji: "🥦",
+      actionIcon: "search",
+    };
+    setItems((prev) => [newItem, ...prev]);
+    showToast(`"${newItem.name}" (${newItem.qty}) berhasil disimpan ke Kulkas!`, "✨");
     setTimeout(() => {
       setCurrentView("dashboard");
       setActiveTab("stok");
-    }, 1200);
+    }, 1000);
   };
 
   const handleTriggerPhoto = () => {
@@ -307,7 +393,11 @@ export default function Home() {
               </div>
 
               {/* Dapur Abdyka (PWA) Badge */}
-              <div className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-xs font-bold tracking-wide">
+              <div
+                onClick={() => setIsSettingsOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors"
+                title="Buka Pengaturan AI & API Key"
+              >
                 <span>🌿</span>
                 <span>Dapur Abdyka (PWA)</span>
               </div>
@@ -320,7 +410,10 @@ export default function Home() {
                 <span>Weekend Fridge Audit (60s)</span>
               </div>
               <button
-                onClick={() => showToast("Memulai mode Weekend Fridge Audit (60s)...", "⏱️")}
+                onClick={() => {
+                  setAuditStep(0);
+                  setIsAuditOpen(true);
+                }}
                 className="bg-[#0D9488] hover:bg-[#0f766e] text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors shadow-sm"
               >
                 Mulai (60s)
@@ -356,7 +449,7 @@ export default function Home() {
                     : "text-[#64748B] hover:text-[#0F172A]"
                 }`}
               >
-                Semua (8)
+                Semua ({items.length})
               </button>
               <button
                 onClick={() => setCategoryFilter("cook")}
@@ -367,7 +460,7 @@ export default function Home() {
                 }`}
               >
                 <span>🥗</span>
-                <span>Bahan Masak (5)</span>
+                <span>Bahan Masak ({items.filter((i) => i.category === "cook").length})</span>
               </button>
               <button
                 onClick={() => setCategoryFilter("ready")}
@@ -378,26 +471,30 @@ export default function Home() {
                 }`}
               >
                 <span>🍱</span>
-                <span>Siap Saji (3)</span>
+                <span>Siap Saji ({items.filter((i) => i.category === "ready").length})</span>
               </button>
             </div>
 
             {/* High Urgency Alert Banner */}
-            <div className="w-full bg-[#FFF1F2] border border-[#FECDD3] rounded-xl px-4 py-2.5 flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-xs font-bold text-[#E11D48]">
-                <span className="w-2 h-2 rounded-full bg-[#E11D48] inline-block animate-pulse"></span>
-                <span>2 Bahan Kritis! Habis dalam &lt;24 jam</span>
+            {items.some((i) => i.expiryText.includes("H-1") || i.expiryText.includes("Hari Ini")) && (
+              <div className="w-full bg-[#FFF1F2] border border-[#FECDD3] rounded-xl px-4 py-2.5 flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#E11D48]">
+                  <span className="w-2 h-2 rounded-full bg-[#E11D48] inline-block animate-pulse"></span>
+                  <span>
+                    {items.filter((i) => i.expiryText.includes("H-1") || i.expiryText.includes("Hari Ini")).length} Bahan Kritis! Habis dalam &lt;24 jam
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTab("olah");
+                    setCurrentView("olah");
+                  }}
+                  className="bg-[#E11D48] hover:bg-[#be123c] text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors shadow-sm"
+                >
+                  Olah Cepat
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setActiveTab("olah");
-                  setCurrentView("olah");
-                }}
-                className="bg-[#E11D48] hover:bg-[#be123c] text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors shadow-sm"
-              >
-                Olah Cepat
-              </button>
-            </div>
+            )}
 
             {/* Section Header: INVENTORI DAPUR & Storage Filter Pills */}
             <div className="flex items-center gap-3 mb-3">
@@ -473,7 +570,7 @@ export default function Home() {
                         setActiveTab("olah");
                         setCurrentView("olah");
                       } else {
-                        showToast(`Edit item: ${item.name}`, "✏️");
+                        setEditingItem({ ...item });
                       }
                     }}
                     className="w-8 h-8 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#64748B] flex items-center justify-center text-sm transition-colors"
@@ -592,7 +689,9 @@ export default function Home() {
                   <span className="text-[10px] font-bold tracking-wider text-[#94A3B8] uppercase block mb-1">
                     NAMA MAKANAN
                   </span>
-                  <div className="text-sm font-extrabold text-[#0F172A] mb-1">Kangkung Segar</div>
+                  <div className="text-sm font-extrabold text-[#0F172A] mb-1">
+                    Kangkung Segar ({scanQty} Ikat)
+                  </div>
                   <div className="text-[11px] font-bold text-[#059669] flex items-center gap-1">
                     <span>🥗</span>
                     <span>Bahan Mentah</span>
@@ -604,7 +703,9 @@ export default function Home() {
                   <span className="text-[10px] font-bold tracking-wider text-[#94A3B8] uppercase block mb-1">
                     ESTIMASI HARGA (ROI)
                   </span>
-                  <div className="text-sm font-extrabold text-[#0D9488] mb-1">Rp 4.500</div>
+                  <div className="text-sm font-extrabold text-[#0D9488] mb-1">
+                    Rp {(4500 * scanQty).toLocaleString("id-ID")}
+                  </div>
                   <div className="text-[11px] font-bold text-[#059669] flex items-center gap-1">
                     <span>📊</span>
                     <span>Rata Pasar Lokal</span>
@@ -642,12 +743,23 @@ export default function Home() {
                   <span>✨</span>
                   <span>Konfirmasi &amp; Simpan ke Kulkas</span>
                 </button>
-                <button
-                  onClick={() => showToast("Tambah kuantitas bahan (+1)", "➕")}
-                  className="w-12 h-12 bg-[#F8FAFC] border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#64748B] rounded-xl flex items-center justify-center text-lg font-bold transition-colors"
-                >
-                  +
-                </button>
+                <div className="flex items-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-1">
+                  <button
+                    onClick={() => setScanQty((prev) => Math.max(1, prev - 1))}
+                    className="w-9 h-11 text-[#64748B] hover:text-[#0F172A] font-bold text-lg flex items-center justify-center transition-colors"
+                    title="Kurangi kuantitas"
+                  >
+                    -
+                  </button>
+                  <span className="w-7 text-center font-extrabold text-sm text-[#0F172A]">{scanQty}</span>
+                  <button
+                    onClick={() => setScanQty((prev) => prev + 1)}
+                    className="w-9 h-11 text-[#64748B] hover:text-[#0F172A] font-bold text-lg flex items-center justify-center transition-colors"
+                    title="Tambah kuantitas"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
 
               {/* Bottom Note */}
@@ -1036,6 +1148,14 @@ export default function Home() {
                     <span>🔄</span>
                     <span>Impor Cadangan</span>
                   </button>
+
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImportFile}
+                    accept=".json"
+                    className="hidden"
+                  />
                 </div>
               </div>
             </div>
@@ -1162,6 +1282,10 @@ export default function Home() {
         onClose={() => setIsRecipeOpen(false)}
         prefilledItemName={recipePrefilledItem}
         showToast={showToast}
+        onCookRecipe={(usedIngredients) => {
+          handleCookRecipe("Menu Masakan Kulkas", 25000, usedIngredients);
+          setIsRecipeOpen(false);
+        }}
         inventory={items.map((i) => ({
           id: i.id,
           name: i.name,
@@ -1183,7 +1307,22 @@ export default function Home() {
         onClose={() => setIsManualAddOpen(false)}
         showToast={showToast}
         onAddItem={(newItem) => {
-          showToast(`Berhasil menambahkan item manual`);
+          const itemToAdd: InventoryItem = {
+            id: newItem.id || Date.now(),
+            name: newItem.rawName || newItem.name.split("(")[0].trim(),
+            qty: newItem.quantityDisplay || `${newItem.qty} ${newItem.satuan || "pcs"}`,
+            expiryText: "5 Hari Lagi",
+            expiryColor: "text-[#059669]",
+            borderColor: "border-l-[#059669]",
+            location: newItem.loc || "Kulkas Utama",
+            locationIcon: "❄️",
+            category: "cook",
+            locationType: newItem.zone === "freezer_beku" ? "freezer" : "fridge",
+            iconEmoji: "🥬",
+            actionIcon: "edit",
+          };
+          setItems((prev) => [itemToAdd, ...prev]);
+          showToast(`"${itemToAdd.name}" ditambahkan ke inventori!`, "✨");
         }}
       />
 
@@ -1235,6 +1374,325 @@ export default function Home() {
                 >
                   + Tambah ke Daftar
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL AUDIT KULKAS (60s Weekend Fridge Audit Sesuai Figma)                */}
+      {/* ========================================================================= */}
+      {isAuditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="bg-[#F8FAFC] rounded-2xl w-full max-w-md shadow-2xl border border-[#CBD5E1] overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Modal Top Header */}
+            <div className="bg-white border-b border-[#E2E8F0] px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 bg-[#0D9488] rounded-lg flex items-center justify-center text-sm text-white">
+                  🍎
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#0F172A]">Audit Kulkas</h3>
+                  <div className="text-[10px] text-[#64748B]">Sinkronisasi cepat mingguan</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 bg-[#ECFDF5] border border-[#A7F3D0] rounded-full text-[11px] font-bold text-[#059669]">
+                  ⏱️ 60 Detik
+                </span>
+                <button
+                  onClick={() => {
+                    setIsAuditOpen(false);
+                    setAuditStep(0);
+                  }}
+                  className="w-8 h-8 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] flex items-center justify-center font-bold text-base transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Audit Body */}
+            <div className="p-5">
+              {auditStep < Math.min(items.length, 4) ? (
+                <>
+                  {/* Explainer Banner */}
+                  <div className="bg-[#F0FDFA] border border-[#0D9488]/30 rounded-xl p-3 mb-4 text-xs">
+                    <div className="font-bold text-[#0D9488] flex items-center gap-1.5 mb-0.5">
+                      <span>✨</span>
+                      <span>Sinkronisasi Kulkas Tanpa Ribet</span>
+                    </div>
+                    <p className="text-[11px] text-[#0F766E] leading-relaxed">
+                      Pilih status bahan untuk perbarui stok &amp; hitung penghematan mingguan.
+                    </p>
+                  </div>
+
+                  {/* Step Counter */}
+                  <div className="text-center text-[10px] font-extrabold tracking-wider text-[#94A3B8] uppercase mb-3">
+                    ITEM {auditStep + 1} DARI {Math.min(items.length, 4)} UNTUK DICEK
+                  </div>
+
+                  {/* Active Audit Card */}
+                  {items[auditStep] && (
+                    <div className="bg-white border-2 border-[#0D9488] rounded-2xl p-6 text-center shadow-md mb-4">
+                      <div className="w-20 h-20 bg-[#F8FAFC] border border-[#F1F5F9] rounded-full flex items-center justify-center text-4xl mx-auto mb-3">
+                        {items[auditStep].iconEmoji}
+                      </div>
+
+                      <h4 className="text-lg font-black text-[#0F172A] mb-1">
+                        {items[auditStep].name}
+                      </h4>
+                      <div className="text-xs font-bold text-[#E11D48] mb-3">
+                        Tercatat {items[auditStep].expiryText} di {items[auditStep].location} ({items[auditStep].qty})
+                      </div>
+
+                      <p className="text-xs text-[#64748B] leading-relaxed mb-5">
+                        Apakah bahan ini masih ada di kulkas, sudah dimasak, atau terlanjur layu?
+                      </p>
+
+                      {/* Decision Buttons */}
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => {
+                              const curr = items[auditStep];
+                              // Hapus dari items dan masukkan ke daftar belanja
+                              setItems((prev) => prev.filter((it) => it.id !== curr.id));
+                              setShoppingItems((prev) => [
+                                {
+                                  id: Date.now(),
+                                  name: curr.name,
+                                  subtitle: "Habis / Dibuang saat audit",
+                                  subtitleColor: "text-[#E11D48]",
+                                  price: 15000,
+                                  priceDisplay: "~Rp 15.000",
+                                  checked: false,
+                                },
+                                ...prev,
+                              ]);
+                              showToast(`"${curr.name}" dipindahkan ke Daftar Belanja`, "🗑️");
+                              setAuditStep((s) => s + 1);
+                            }}
+                            className="bg-[#FFF1F2] border border-[#FECDD3] hover:bg-[#FFE4E6] text-[#E11D48] text-xs font-bold py-2.5 rounded-xl transition-all"
+                          >
+                            🗑️ Terlanjur Dibuang
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const curr = items[auditStep];
+                              setItems((prev) => prev.filter((it) => it.id !== curr.id));
+                              setFinancialSaved((prev) => prev + 15000);
+                              showToast(`🎉 "${curr.name}" dimasak! Saldo hemat +Rp 15.000`, "🍳");
+                              setAuditStep((s) => s + 1);
+                            }}
+                            className="bg-[#ECFDF5] border border-[#A7F3D0] hover:bg-[#D1FAE5] text-[#059669] text-xs font-bold py-2.5 rounded-xl transition-all"
+                          >
+                            🍳 Sudah Dimasak!
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => setAuditStep((s) => s + 1)}
+                          className="w-full bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#64748B] text-xs font-bold py-2 rounded-xl transition-all"
+                        >
+                          ⏩ Masih Ada di Kulkas (Lewati)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* UX Rationale Box */}
+                  <div className="bg-white border border-[#E2E8F0] rounded-xl p-3 text-xs">
+                    <div className="font-bold text-[#0D9488] mb-1">
+                      🧠 Rationale UX: Mengapa Fitur Ini Mencegah Churn?
+                    </div>
+                    <ul className="text-[11px] text-[#475569] space-y-0.5 list-disc list-inside">
+                      <li>Cukup 60 detik tiap hari Minggu untuk re-sync tanpa input dari awal.</li>
+                      <li>Bahan yang dibuang otomatis masuk usulan daftar belanja minggu depan.</li>
+                    </ul>
+                  </div>
+                </>
+              ) : (
+                /* Audit Complete Screen */
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 bg-[#ECFDF5] border border-[#A7F3D0] text-[#059669] rounded-full flex items-center justify-center text-3xl mx-auto mb-3">
+                    🎉
+                  </div>
+                  <h4 className="text-lg font-black text-[#0F172A] mb-1">
+                    Audit Kulkas Selesai!
+                  </h4>
+                  <p className="text-xs text-[#64748B] max-w-xs mx-auto mb-5">
+                    Data inventori kulkas Anda sekarang 100% mutakhir dan selaras dengan daftar belanja &amp; resep.
+                  </p>
+
+                  <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 max-w-xs mx-auto mb-5 text-left space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#64748B]">Kerapian Kulkas:</span>
+                      <span className="font-bold text-[#059669]">100% Sinkron</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#64748B]">Stok Tersisa:</span>
+                      <span className="font-bold text-[#0F172A]">{items.length} Bahan</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#64748B]">Daftar Belanja:</span>
+                      <span className="font-bold text-[#0D9488]">Terkendali</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setIsAuditOpen(false);
+                      setAuditStep(0);
+                      showToast("Kulkas berhasil diaudit & disinkronkan!", "✨");
+                    }}
+                    className="w-full max-w-xs bg-[#0D9488] hover:bg-[#0f766e] text-white font-bold py-3 rounded-xl text-sm transition-all shadow-sm"
+                  >
+                    Selesai &amp; Kembali ke Kulkas
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL EDIT ITEM INVENTORI                                                 */}
+      {/* ========================================================================= */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-extrabold text-[#0F172A] flex items-center gap-2">
+                <span>✏️</span> Ubah Bahan Makanan
+              </h3>
+              <button
+                onClick={() => setEditingItem(null)}
+                className="w-8 h-8 rounded-lg hover:bg-[#F1F5F9] text-[#64748B] flex items-center justify-center font-bold text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setItems((prev) =>
+                  prev.map((it) => (it.id === editingItem.id ? editingItem : it))
+                );
+                showToast(`Perubahan "${editingItem.name}" berhasil disimpan`, "💾");
+                setEditingItem(null);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="text-xs font-bold text-[#475569] block mb-1">
+                  Nama Bahan Makanan
+                </label>
+                <input
+                  type="text"
+                  value={editingItem.name}
+                  onChange={(e) =>
+                    setEditingItem({ ...editingItem, name: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-[#475569] block mb-1">
+                  Jumlah / Kuantitas
+                </label>
+                <input
+                  type="text"
+                  value={editingItem.qty}
+                  onChange={(e) =>
+                    setEditingItem({ ...editingItem, qty: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Lokasi Penyimpanan
+                  </label>
+                  <select
+                    value={editingItem.location}
+                    onChange={(e) => {
+                      const loc = e.target.value;
+                      const isFreezer = loc.toLowerCase().includes("freezer");
+                      setEditingItem({
+                        ...editingItem,
+                        location: loc,
+                        locationIcon: isFreezer ? "🧊" : "❄️",
+                        locationType: isFreezer ? "freezer" : "fridge",
+                      });
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#CBD5E1] text-xs focus:outline-none focus:border-[#0D9488]"
+                  >
+                    <option value="Kulkas Sayur">❄️ Kulkas Sayur</option>
+                    <option value="Kulkas Utama">❄️ Kulkas Utama</option>
+                    <option value="Chiller">❄️ Chiller</option>
+                    <option value="Freezer Atas">🧊 Freezer Atas</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Kategori Bahan
+                  </label>
+                  <select
+                    value={editingItem.category}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        category: e.target.value as "cook" | "ready",
+                      })
+                    }
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#CBD5E1] text-xs focus:outline-none focus:border-[#0D9488]"
+                  >
+                    <option value="cook">🥗 Bahan Masak</option>
+                    <option value="ready">🍗 Siap Saji / Matang</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const toDelete = editingItem;
+                    setItems((prev) => prev.filter((it) => it.id !== toDelete.id));
+                    showToast(`"${toDelete.name}" telah dihapus dari kulkas`, "🗑️");
+                    setEditingItem(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#E11D48] hover:bg-[#FFF1F2] transition"
+                >
+                  Hapus Item
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingItem(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-[#64748B] hover:bg-[#F1F5F9] transition"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-[#0D9488] hover:bg-[#0f766e] text-white transition shadow-sm"
+                  >
+                    Simpan Perubahan
+                  </button>
+                </div>
               </div>
             </form>
           </div>
