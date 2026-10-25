@@ -91,7 +91,7 @@ export default function SettingsModal({
     setVision2Status("testing");
     setVision1Latency(null);
     setVision2Latency(null);
-    showToast("Menguji koneksi Dual Vision (Vision 1 & Vision 2)...", "⏳");
+    showToast("Menguji koneksi Dual Vision (Vision 1 & Vision 2)...", "info");
 
     try {
       // Ping both Vision 1 (26B Multimodal) and Vision 2 (31B Deep Thinking) in parallel
@@ -121,26 +121,26 @@ export default function SettingsModal({
       // Show comprehensive Toast
       if (res1.ok && res2.ok) {
         showToast(
-          `✅ Dual Ping Berhasil! Vision 1 (${res1.latency}ms) & Vision 2 (${res2.latency}ms) aktif.`,
-          "🎉"
+          `Dual Ping Berhasil! Vision 1 (${res1.latency}ms) & Vision 2 (${res2.latency}ms) aktif.`,
+          "success"
         );
       } else if (res1.ok && !res2.ok) {
         showToast(
-          `⚠️ Vision 1 Online (${res1.latency}ms), tetapi Vision 2 sibuk (${res2.error}).`,
-          "⚠️"
+          `Vision 1 Online (${res1.latency}ms), tetapi Vision 2 sibuk (${res2.error}).`,
+          "warning"
         );
       } else if (!res1.ok && res2.ok) {
         showToast(
-          `⚠️ Vision 2 Online (${res2.latency}ms), tetapi Vision 1 sibuk (${res1.error}).`,
-          "⚠️"
+          `Vision 2 Online (${res2.latency}ms), tetapi Vision 1 sibuk (${res1.error}).`,
+          "warning"
         );
       } else {
-        showToast("❌ Kedua Vision gagal terhubung ke server.", "❌");
+        showToast("Kedua Vision gagal terhubung ke server.", "error");
       }
     } catch (err: any) {
       setVision1Status("error");
       setVision2Status("error");
-      showToast(`❌ Gagal terhubung: ${err.message}`, "❌");
+      showToast(`Gagal terhubung: ${err.message}`, "error");
     } finally {
       setTesting(false);
     }
@@ -320,7 +320,7 @@ export default function SettingsModal({
           </div>
 
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed bg-zinc-50 dark:bg-zinc-800/40 p-2.5 rounded-xl border border-zinc-200/60 dark:border-zinc-800">
-            💡 Saat menekan <strong>Tes Koneksi</strong>, sistem langsung melakukan <strong>Dual Ping</strong> ke server Google Generative Language untuk memastikan <strong>Vision 1</strong> (Penghitung Fisik) dan <strong>Vision 2</strong> (Deep Thinking Pangan) keduanya responsif.
+            Saat menekan <strong>Tes Koneksi</strong>, sistem langsung melakukan <strong>Dual Ping</strong> ke server Google Generative Language untuk memastikan <strong>Vision 1</strong> (Penghitung Fisik) dan <strong>Vision 2</strong> (Deep Thinking Pangan) keduanya responsif.
           </p>
         </div>
 

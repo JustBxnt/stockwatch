@@ -39,7 +39,9 @@ export const DeepFoodAnalysisSchema = z.object({
 
 export const ScannedItemSchema = z.object({
   nama_produk: z.string().min(1, "Nama produk wajib diisi").trim(),
-  tipe_makanan: z.enum(["mentah_segar", "olahan_matang", "kemasan_pabrik"]).default("olahan_matang"),
+  tipe_makanan: z
+    .enum(["mentah_segar", "olahan_matang", "kemasan_pabrik", "siap_saji"])
+    .catch("olahan_matang"),
   status_segel: z.string().optional(),
   spesifikasi: z.string().optional(),
   kuantitas: z.coerce.number().int().positive().default(1),
@@ -52,7 +54,7 @@ export const ScannedItemSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Format tanggal harus YYYY-MM-DD")
     .nullable()
     .catch(null),
-  kategori: FoodCategoryEnum.default("Kuliner Tradisional & Olahan Matang"),
+  kategori: z.string().default("Kuliner Tradisional & Olahan Matang"),
 });
 
 export const ScanResponseSchema = z.object({

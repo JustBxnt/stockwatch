@@ -7,7 +7,7 @@ interface ManualAddModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddItem: (item: any) => void;
-  showToast: (msg: string, icon?: string) => void;
+  showToast: (msg: string, type?: "success" | "warning" | "error" | "info") => void;
 }
 
 export default function ManualAddModal({
@@ -28,7 +28,7 @@ export default function ManualAddModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      showToast("Nama bahan tidak boleh kosong", "⚠️");
+      showToast("Nama bahan tidak boleh kosong", "warning");
       return;
     }
 
@@ -38,10 +38,10 @@ export default function ManualAddModal({
 
     const zoneLabel =
       zone === "kulkas_chiller"
-        ? "❄️ Chiller Kulkas"
+        ? "Chiller Kulkas"
         : zone === "suhu_ruang"
-        ? "🥗 Crisper Sayur"
-        : "🧊 Freezer Beku";
+        ? "Crisper Sayur"
+        : "Freezer Beku";
 
     const newItem = {
       id: Date.now(),
@@ -62,7 +62,7 @@ export default function ManualAddModal({
     };
 
     onAddItem(newItem);
-    showToast(`✅ "${newItem.name}" berhasil ditambahkan ke inventori!`, "🎉");
+    showToast(`"${newItem.name}" berhasil ditambahkan ke inventori!`, "success");
     setName("");
     setQty(1);
     onClose();
@@ -150,9 +150,9 @@ export default function ManualAddModal({
               onChange={(e) => setZone(e.target.value)}
               className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/80 p-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:border-emerald-500 focus:outline-none font-medium cursor-pointer"
             >
-              <option value="suhu_ruang">🥗 Crisper Sayur & Buah</option>
-              <option value="kulkas_chiller">❄️ Chiller Kulkas (Dingin)</option>
-              <option value="freezer_beku">🧊 Freezer Beku</option>
+              <option value="suhu_ruang">Crisper Sayur &amp; Buah</option>
+              <option value="kulkas_chiller">Chiller Kulkas (Dingin)</option>
+              <option value="freezer_beku">Freezer Beku</option>
             </select>
           </div>
 
@@ -188,15 +188,15 @@ export default function ManualAddModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+              className="rounded-xl border border-zinc-200 dark:border-zinc-700 px-4 py-2 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
             >
               Batal
             </button>
             <button
               type="submit"
-              className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white shadow hover:bg-emerald-700 active:scale-95 transition"
+              className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition shadow-sm"
             >
-              Simpan ke Inventori
+              Simpan ke Kulkas
             </button>
           </div>
         </form>

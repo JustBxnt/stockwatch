@@ -352,10 +352,10 @@ export default function SmartScanModal({ isOpen, onClose, onSaveItems }: SmartSc
       const storageMode = selectedStorage[idx] || "kulkas_chiller";
       const zoneLabel =
         storageMode === "kulkas_chiller"
-          ? "❄️ Chiller Kulkas"
+          ? "Chiller Kulkas"
           : storageMode === "suhu_ruang"
-          ? "🥗 Crisper Sayur"
-          : "🧊 Freezer Beku";
+          ? "Crisper Sayur"
+          : "Freezer Beku";
 
       return {
         id: Date.now() + Math.floor(Math.random() * 10000),
@@ -540,21 +540,21 @@ export default function SmartScanModal({ isOpen, onClose, onSaveItems }: SmartSc
                     onClick={() => loadSampleFood("wortel")}
                     className="text-xs bg-white dark:bg-zinc-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 rounded-lg font-medium transition"
                   >
-                    🥕 Wortel Brastagi (4 Biji)
+                    Wortel Brastagi (4 Biji)
                   </button>
                   <button
                     type="button"
                     onClick={() => loadSampleFood("tomat")}
                     className="text-xs bg-white dark:bg-zinc-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 rounded-lg font-medium transition"
                   >
-                    🍅 Tomat Cherry (6 Biji)
+                    Tomat Cherry (6 Biji)
                   </button>
                   <button
                     type="button"
                     onClick={() => loadSampleFood("alpukat")}
                     className="text-xs bg-white dark:bg-zinc-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 rounded-lg font-medium transition"
                   >
-                    🥑 Alpukat Mentega (2 Buah)
+                    Alpukat Mentega (2 Buah)
                   </button>
                 </div>
               </div>
@@ -623,8 +623,9 @@ export default function SmartScanModal({ isOpen, onClose, onSaveItems }: SmartSc
                 </div>
 
                 {safetySummary && (
-                  <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed pt-2 border-t border-emerald-200/50 dark:border-emerald-800/40">
-                    💡 <strong>Analisis Kesegaran Gemma:</strong> {safetySummary}
+                  <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed pt-2 border-t border-emerald-200/50 dark:border-emerald-800/40 flex items-start gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                    <span><strong>Analisis Kesegaran:</strong> {safetySummary}</span>
                   </p>
                 )}
               </div>
@@ -669,7 +670,7 @@ export default function SmartScanModal({ isOpen, onClose, onSaveItems }: SmartSc
                           <div className="flex flex-wrap items-center gap-2">
                             {/* Quantity Badge */}
                             <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                              🏷️ {item.kuantitas} {item.satuan.toUpperCase()}
+                              {item.kuantitas} {item.satuan.toUpperCase()}
                             </span>
                             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                               {item.kategori}

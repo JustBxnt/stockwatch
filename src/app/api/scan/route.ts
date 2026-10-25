@@ -11,18 +11,20 @@ export async function POST(req: NextRequest) {
       (formData.get("apiKey") as string)?.trim() ||
       req.headers.get("x-api-key")?.trim();
     const requestedModel =
-      (formData.get("model") as string)?.trim() || "gemma-4-26b-a4b-it";
+      (formData.get("model") as string)?.trim() ||
+      process.env.GEMINI_MODEL ||
+      "gemini-3.1-flash-lite";
 
     const defaultApiKey =
-      process.env.GEMMA_API_KEY ||
       process.env.GEMINI_API_KEY ||
+      process.env.GEMMA_API_KEY ||
       "";
 
     const activeApiKey = clientApiKey || defaultApiKey;
 
     if (!activeApiKey) {
       return NextResponse.json(
-        { error: "Kunci API Google Gemma belum dikonfigurasi." },
+        { error: "Kunci API Google Gemini belum dikonfigurasi." },
         { status: 500 }
       );
     }
@@ -53,11 +55,13 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
-    // Selected model exclusively Google Gemma
+    // Selected model: defaults to Gemini 3.1 Flash Lite
     const selectedModel =
-      requestedModel === "gemma-4-31b-it" ? "gemma-4-31b-it" : "gemma-4-26b-a4b-it";
+      requestedModel && (requestedModel.includes("gemini") || requestedModel.includes("gemma"))
+        ? requestedModel
+        : "gemini-3.1-flash-lite";
 
-    const prompt = `Peran: Pakar AI Vision Pangan & Valuasi Ekonomi Kuliner Indonesia (StockWatch OS - Deep Thinking Engine).
+    const prompt = `Peran: Pakar AI Vision Pangan & Valuasi Ekonomi Kuliner Indonesia (StockWatch OS - Gemini 3.1 Flash Lite Engine).
 
 Instruksi Analisis Gambar Sangat Amat Detail & Perhitungan Jumlah Fisik:
 1. Identifikasi SEMUA jenis buah, sayuran, daging, telur, bumbu, atau bahan pangan yang tampak di foto.
@@ -128,6 +132,7 @@ Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown
       ],
       generationConfig: {
         temperature: 0.1,
+        responseMimeType: "application/json",
       },
     };
 
@@ -148,8 +153,7 @@ Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown
     if (!response.ok) {
       const errJson = await response.json().catch(() => ({}));
       throw new Error(
-        `Google Gemma API error (${response.status}): ${
-          errJson.error?.message || response.statusText
+        `Google Gemini API error (${response.status}): ${errJson.error?.message || response.statusText
         }`
       );
     }
@@ -158,7 +162,7 @@ Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown
     const candidates = resultData.candidates;
 
     if (!candidates || candidates.length === 0) {
-      throw new Error("Tidak ada kandidat respon yang dikembalikan oleh model Google Gemma.");
+      throw new Error("Tidak ada respon yang dikembalikan oleh model Google Gemini.");
     }
 
     const parts = candidates[0].content?.parts || [];
@@ -195,10 +199,11 @@ Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown
       }
     }
 
-    // Attach deep thinking trace
+    // Attach deep thinking trace and ensure success flag
+    rawJson.success = true;
     rawJson.thinking_trace =
       thinkingTrace ||
-      "Google Gemma 4 Deep Thinking Engine: Berhasil memindai komposisi warna, pencahayaan mikrobiologi, dan menghitung kuantitas unit biji/buah secara teliti.";
+      "Google Gemini 3.1 Flash Lite Engine: Berhasil memindai komposisi warna, pencahayaan mikrobiologi, dan menghitung kuantitas unit biji/buah secara teliti.";
 
     const parsed = ScanResponseSchema.safeParse(rawJson);
 

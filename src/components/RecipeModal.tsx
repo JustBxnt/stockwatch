@@ -98,7 +98,7 @@ export default function RecipeModal({
     if (onCookRecipe) {
       onCookRecipe(currentRecipe.fridgeIngredients);
     }
-    showToast(`🎉 Menu "${currentRecipe.title}" dimasak! Bahan kulkas terpakai otomatis berkurang.`, "🍳");
+    showToast(`Menu "${currentRecipe.title}" dimasak! Bahan kulkas terpakai otomatis berkurang.`, "success");
     onClose();
   };
 
@@ -141,7 +141,7 @@ export default function RecipeModal({
                     : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-transparent hover:bg-zinc-200 dark:hover:bg-zinc-700"
                 }`}
               >
-                🍳 {r.title.split("&")[0]}
+                {r.title.split("&")[0]}
               </button>
             ))}
           </div>
@@ -176,8 +176,8 @@ export default function RecipeModal({
                 {currentRecipe.fridgeIngredients.length > 0 ? (
                   currentRecipe.fridgeIngredients.map((item, i) => (
                     <div key={i} className="text-xs flex items-center gap-1.5 text-emerald-800 dark:text-emerald-200 font-medium">
-                      <span className="h-4 w-4 rounded-full bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-100 flex items-center justify-center text-[10px] font-bold">
-                        ✓
+                      <span className="h-4 w-4 rounded-full bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-100 flex items-center justify-center">
+                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
                       </span>
                       <span>{item}</span>
                     </div>
@@ -191,7 +191,7 @@ export default function RecipeModal({
             {/* Bumbu Pelengkap Dapur */}
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-3.5 space-y-2">
               <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                🧂 Bumbu Pelengkap:
+                <Sparkles className="h-3.5 w-3.5 text-zinc-500" /> Bumbu Pelengkap:
               </span>
               <div className="space-y-1">
                 {currentRecipe.pantryIngredients.map((item, i) => (
@@ -207,7 +207,7 @@ export default function RecipeModal({
           {/* Steps */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 space-y-2.5 bg-zinc-50/50 dark:bg-zinc-900/30">
             <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-              🍳 Langkah Praktis Memasak:
+              <ChefHat className="h-3.5 w-3.5 text-zinc-500" /> Langkah Praktis Memasak:
             </h4>
             <div className="space-y-2">
               {currentRecipe.steps.map((step, sIdx) => (
