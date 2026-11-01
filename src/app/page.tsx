@@ -1680,6 +1680,55 @@ export default function Home() {
     }, 1000);
   };
 
+  // Kompresi cerdas gambar sebelum diunggah ke Gemini AI Vision (Menghindari batasan 4.5MB Vercel)
+  const compressImageForAi = (file: File): Promise<{ base64: string; dataUrl: string }> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const maxDim = 1200;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const raw = (e.target?.result as string) || "";
+            resolve({ base64: raw.split(",")[1] || "", dataUrl: raw });
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+        const base64 = dataUrl.split(",")[1] || "";
+        resolve({ base64, dataUrl });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const raw = (e.target?.result as string) || "";
+          resolve({ base64: raw.split(",")[1] || "", dataUrl: raw });
+        };
+        reader.readAsDataURL(file);
+      };
+      img.src = objectUrl;
+    });
+  };
+
   const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1696,13 +1745,15 @@ export default function Home() {
       showToast("Mengunggah foto & sedang memproses...", "camera");
 
       try {
-        const formData = new FormData();
-        formData.append("image", file);
-        formData.append("model", "gemini-3.5-flash-lite");
-
+        const { base64 } = await compressImageForAi(file);
         const res = await fetch("/api/scan", {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image: base64,
+            mimeType: "image/jpeg",
+            model: "gemini-3.5-flash-lite",
+          }),
         });
 
         const data = await res.json();

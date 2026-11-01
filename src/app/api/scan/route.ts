@@ -5,55 +5,70 @@ export const maxDuration = 180; // 3 minutes timeout for Deep Thinking Vision
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("image") as File | null;
-    const clientApiKey =
-      (formData.get("apiKey") as string)?.trim() ||
-      req.headers.get("x-api-key")?.trim();
-    const requestedModel =
-      (formData.get("model") as string)?.trim() ||
-      process.env.GEMINI_MODEL ||
-      "gemini-3.5-flash-lite";
+    let base64Data = "";
+    let mimeType = "image/jpeg";
+    let clientApiKey = req.headers.get("x-api-key")?.trim() || "";
+    let requestedModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+
+    const contentType = req.headers.get("content-type") || "";
+
+    // 1. Dukung pengiriman JSON (Base64) - Sangat cepat, tahan batas payload Vercel
+    if (contentType.includes("application/json")) {
+      try {
+        const body = await req.json();
+        base64Data = body.image || "";
+        mimeType = body.mimeType || "image/jpeg";
+        if (body.apiKey) clientApiKey = body.apiKey.trim();
+        if (body.model) requestedModel = body.model.trim();
+      } catch (e: any) {
+        return NextResponse.json(
+          { error: "Gagal memproses data gambar JSON." },
+          { status: 400 }
+        );
+      }
+    } else {
+      // 2. Dukung FormData tradisional
+      try {
+        const formData = await req.formData();
+        const file = formData.get("image") as File | null;
+        if (file) {
+          mimeType = file.type || "image/jpeg";
+          const arrayBuffer = await file.arrayBuffer();
+          base64Data = Buffer.from(arrayBuffer).toString("base64");
+        }
+        const formApiKey = formData.get("apiKey") as string | null;
+        if (formApiKey) clientApiKey = formApiKey.trim();
+        const formModel = formData.get("model") as string | null;
+        if (formModel) requestedModel = formModel.trim();
+      } catch (e: any) {
+        return NextResponse.json(
+          { error: "Gagal membaca FormData gambar. Gunakan gambar berukuran lebih kecil." },
+          { status: 400 }
+        );
+      }
+    }
 
     const defaultApiKey =
       process.env.GEMINI_API_KEY ||
       process.env.GEMMA_API_KEY ||
+      process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
       "";
 
     const activeApiKey = clientApiKey || defaultApiKey;
 
     if (!activeApiKey) {
       return NextResponse.json(
-        { error: "Kunci API Google Gemini belum dikonfigurasi." },
+        { error: "Kunci API Google Gemini belum dikonfigurasi di Vercel." },
         { status: 500 }
       );
     }
 
-    if (!file) {
+    if (!base64Data) {
       return NextResponse.json(
         { error: "File gambar wajib diunggah." },
         { status: 400 }
       );
     }
-
-    const maxSize = 12 * 1024 * 1024; // 12MB
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: "Ukuran gambar terlalu besar. Maksimal 12MB." },
-        { status: 400 }
-      );
-    }
-
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: "Format file tidak didukung. Gunakan format JPG, PNG, atau WebP." },
-        { status: 400 }
-      );
-    }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
     // Candidate models with automatic fallback if a model experiences 503 high demand or 404/429
     const candidateModels = Array.from(
@@ -131,7 +146,7 @@ Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown
             { text: prompt },
             {
               inlineData: {
-                mimeType: file.type,
+                mimeType: mimeType || "image/jpeg",
                 data: base64Data,
               },
             },
