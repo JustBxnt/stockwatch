@@ -1316,6 +1316,48 @@ export default function Home() {
     }
   };
 
+  // Fungsi Pembantu Notifikasi Universal (Mendukung Android Chrome, iOS PWA, dan Desktop)
+  const displaySystemNotification = async (title: string, options: any = {}): Promise<boolean> => {
+    try {
+      const defaultOptions = {
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        vibrate: [200, 100, 200],
+        tag: "stockwatch-reminder",
+        renotify: true,
+        ...options,
+      };
+
+      // 1. Prioritaskan Service Worker Registration (WAJIB untuk Chrome di Android / Mobile PWA)
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && "showNotification" in reg) {
+            await reg.showNotification(title, defaultOptions);
+            return true;
+          }
+        } catch (swErr) {
+          console.warn("ServiceWorker showNotification coba fallback:", swErr);
+        }
+      }
+
+      // 2. Fallback untuk Desktop browser yang mendukung new Notification constructor
+      if (typeof window !== "undefined" && "Notification" in window) {
+        try {
+          new Notification(title, defaultOptions);
+          return true;
+        } catch (notifErr) {
+          console.warn("new Notification constructor gagal:", notifErr);
+        }
+      }
+
+      return false;
+    } catch (err) {
+      console.error("displaySystemNotification error:", err);
+      return false;
+    }
+  };
+
   // Toggle Pengaturan dengan Izin Notification API Langsung
   const toggleSetting = async (key: keyof typeof settingsToggles) => {
     const nextVal = !settingsToggles[key];
@@ -1331,12 +1373,9 @@ export default function Home() {
           const perm = await Notification.requestPermission();
           if (perm === "granted") {
             showToast("Web Push Notification berhasil diaktifkan!", "success");
-            try {
-              new Notification("StockWatch OS - Pengingat Aktif!", {
-                body: "Pengingat bahan kedaluwarsa & anti-mubazir siap memantau dapur Anda.",
-                icon: "/icon-192.png",
-              });
-            } catch (e) {}
+            await displaySystemNotification("StockWatch OS - Pengingat Aktif!", {
+              body: "Pengingat bahan kedaluwarsa & anti-mubazir siap memantau dapur Anda.",
+            });
           } else if (perm === "denied") {
             showToast("Izin notifikasi diblokir di peramban Anda. Silakan aktifkan di ikon setelan situs peramban.", "warning");
           }
@@ -1353,8 +1392,8 @@ export default function Home() {
 
   // Uji Coba Pengiriman Notifikasi Langsung ke Perangkat Pengguna
   const handleTestNotification = async () => {
-    if (!("Notification" in window)) {
-      showToast("Peramban tidak mendukung Web Notification.", "warning");
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      showToast("Peramban Anda tidak mendukung Web Notification.", "warning");
       return;
     }
 
@@ -1377,13 +1416,13 @@ export default function Home() {
         notifBody = `Segera konsumsi: ${criticals.slice(0, 2).map((i) => i.name).join(", ")}. Selamatkan nilai makanan Anda!`;
       }
 
-      try {
-        new Notification(notifTitle, {
-          body: notifBody,
-          icon: "/icon-192.png",
-        });
-        showToast("Notifikasi berhasil dikirim ke layar Anda!", "success");
-      } catch (err) {
+      const success = await displaySystemNotification(notifTitle, {
+        body: notifBody,
+      });
+
+      if (success) {
+        showToast("Notifikasi berhasil dikirim ke layar HP Anda!", "success");
+      } else {
         showToast("Gagal memunculkan notifikasi sistem", "error");
       }
     } else {
@@ -1414,13 +1453,11 @@ export default function Home() {
     });
 
     if (criticalItems.length > 0) {
-      try {
-        new Notification(`StockWatch: ${criticalItems.length} Bahan Butuh Perhatian!`, {
-          body: `Bahan seperti "${criticalItems[0].name}" mendekati tanggal batas. Segera olah untuk cegah mubazir.`,
-          icon: "/icon-192.png",
-        });
+      displaySystemNotification(`StockWatch: ${criticalItems.length} Bahan Butuh Perhatian!`, {
+        body: `Bahan seperti "${criticalItems[0].name}" mendekati tanggal batas. Segera olah untuk cegah mubazir.`,
+      }).then(() => {
         localStorage.setItem("stockwatch_last_digest_date", todayKey);
-      } catch (e) {}
+      });
     }
   }, [items, isClientLoaded, settingsToggles]);
 
