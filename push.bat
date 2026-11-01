@@ -1,8 +1,9 @@
 @echo off
+setlocal enabledelayedexpansion
 title StockWatch - Git Sync ^& Push
 cd /d "%~dp0"
 
-rem Memastikan Git selalu terbaca di sistem
+rem Memastikan Git selalu terbaca di sistem (termasuk MinGit portable)
 where git >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     set "PATH=%USERPROFILE%\mingit\cmd;%LOCALAPPDATA%\Programs\Git\cmd;C:\Program Files\Git\cmd;%PATH%"
@@ -23,9 +24,14 @@ git add .
 rem 3. Cek apakah ada perubahan baru untuk di-commit
 git diff --cached --quiet
 if %ERRORLEVEL% NEQ 0 (
-    set /p "commit_msg=Masukkan pesan commit (atau tekan Enter untuk default): "
-    if "!commit_msg!"=="" (
-        set "commit_msg=chore: update stockwatch codebase %date% %time%"
+    set "commit_arg=%~1"
+    if "!commit_arg!"=="" (
+        set /p "commit_msg=Masukkan pesan commit (atau tekan Enter untuk default): "
+        if "!commit_msg!"=="" (
+            set "commit_msg=chore: update stockwatch codebase %date% %time%"
+        )
+    ) else (
+        set "commit_msg=!commit_arg!"
     )
     git commit -m "!commit_msg!"
 ) else (

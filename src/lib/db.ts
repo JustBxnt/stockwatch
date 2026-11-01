@@ -119,7 +119,17 @@ export async function signUpUser(
         };
         if (typeof window !== "undefined") {
           localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(profile));
+          localStorage.removeItem("stockwatch_inventory_items");
+          localStorage.removeItem("stockwatch_financial_saved");
+          localStorage.removeItem("stockwatch_saved_count");
+          localStorage.removeItem("stockwatch_shopping_items");
         }
+        await saveUserData(profile.id, {
+          items: [],
+          shoppingItems: [],
+          financialSaved: 0,
+          savedCount: 0,
+        });
         return { user: profile };
       }
     } catch (e: any) {
@@ -270,9 +280,9 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         supabase.from("user_metrics").select("*").eq("user_id", userId).maybeSingle(),
       ]);
 
-      // Jika query berhasil (error null), data pengguna valid ditemukan di database
-      if (!invRes.error && invRes.data) {
-        const items: InventoryItemDB[] = invRes.data.map((row: any) => ({
+      // Query database Supabase berhasil (error null)
+      if (!invRes.error) {
+        const items: InventoryItemDB[] = (invRes.data || []).map((row: any) => ({
           id: Number(row.id),
           name: row.name,
           qty: row.qty,
@@ -327,7 +337,8 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
     } catch {}
   }
 
-  return null;
+  // Jika akun baru dan belum memiliki record apa pun, kembalikan data bersih (0 inventori, 0 belanjaan, Rp 0)
+  return { items: [], shoppingItems: [], financialSaved: 0, savedCount: 0 };
 }
 
 export async function saveUserData(

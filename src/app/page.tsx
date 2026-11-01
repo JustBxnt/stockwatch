@@ -937,9 +937,14 @@ export default function Home() {
             setShoppingItems(userData.shoppingItems || []);
             setFinancialSaved(userData.financialSaved || 0);
             setSavedCount(userData.savedCount || 0);
-            setIsClientLoaded(true);
-            return;
+          } else {
+            setItems([]);
+            setShoppingItems([]);
+            setFinancialSaved(0);
+            setSavedCount(0);
           }
+          setIsClientLoaded(true);
+          return;
         }
 
         // Mode Tamu (Guest Mode) ketika belum ada user login
@@ -956,11 +961,11 @@ export default function Home() {
             setItems(healed);
           }
         } else {
-          // Hanya muat data demo untuk tamu baru pertama kali
-          setItems(DEFAULT_ITEMS);
-          setShoppingItems(DEFAULT_SHOPPING_ITEMS);
-          setFinancialSaved(285000);
-          setSavedCount(5);
+          // Akun atau tamu baru dimulai dalam kondisi bersih (0 item, Rp 0)
+          setItems([]);
+          setShoppingItems([]);
+          setFinancialSaved(0);
+          setSavedCount(0);
         }
 
         const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
@@ -975,20 +980,7 @@ export default function Home() {
         if (storedShopping !== null) {
           const parsed = JSON.parse(storedShopping);
           if (Array.isArray(parsed)) {
-            const cleaned = parsed.map((it: ShoppingItem) => {
-              if (it.subtitle?.includes("Otomatis masuk stok")) {
-                return {
-                  ...it,
-                  checked: false,
-                  subtitle: "Kebutuhan protein mingguan",
-                  subtitleColor: "text-[#64748B]",
-                  price: it.price || 26000,
-                  priceDisplay: it.priceDisplay || "~Rp 26.000",
-                };
-              }
-              return it;
-            });
-            setShoppingItems(cleaned);
+            setShoppingItems(parsed);
           }
         }
       } catch (e) {
@@ -1014,9 +1006,34 @@ export default function Home() {
         };
         setCurrentUser(uProfile);
         localStorage.setItem("stockwatch_active_user", JSON.stringify(uProfile));
+
+        // Bersihkan sampah guest localStorage agar tidak mencemari akun pengguna
+        localStorage.removeItem("stockwatch_inventory_items");
+        localStorage.removeItem("stockwatch_financial_saved");
+        localStorage.removeItem("stockwatch_saved_count");
+        localStorage.removeItem("stockwatch_shopping_items");
+
+        // Muat data spesifik akun dari database Supabase
+        const data = await loadUserData(uProfile.id);
+        if (data !== null) {
+          setItems(data.items || []);
+          setShoppingItems(data.shoppingItems || []);
+          setFinancialSaved(data.financialSaved || 0);
+          setSavedCount(data.savedCount || 0);
+        } else {
+          setItems([]);
+          setShoppingItems([]);
+          setFinancialSaved(0);
+          setSavedCount(0);
+        }
+        setIsClientLoaded(true);
       } else if (event === "SIGNED_OUT") {
         setCurrentUser(null);
         localStorage.removeItem("stockwatch_active_user");
+        localStorage.removeItem("stockwatch_inventory_items");
+        localStorage.removeItem("stockwatch_financial_saved");
+        localStorage.removeItem("stockwatch_saved_count");
+        localStorage.removeItem("stockwatch_shopping_items");
         setItems([]);
         setShoppingItems([]);
         setFinancialSaved(0);
@@ -1034,18 +1051,24 @@ export default function Home() {
   useEffect(() => {
     if (!isClientLoaded) return;
     try {
-      localStorage.setItem("stockwatch_inventory_items", JSON.stringify(items));
-      localStorage.setItem("stockwatch_financial_saved", financialSaved.toString());
-      localStorage.setItem("stockwatch_saved_count", savedCount.toString());
-      localStorage.setItem("stockwatch_shopping_items", JSON.stringify(shoppingItems));
-
       if (currentUser) {
+        localStorage.setItem(`stockwatch_user_data_${currentUser.id}`, JSON.stringify({
+          items,
+          shoppingItems,
+          financialSaved,
+          savedCount,
+        }));
         saveUserData(currentUser.id, {
           items,
           shoppingItems,
           financialSaved,
           savedCount,
         });
+      } else {
+        localStorage.setItem("stockwatch_inventory_items", JSON.stringify(items));
+        localStorage.setItem("stockwatch_financial_saved", financialSaved.toString());
+        localStorage.setItem("stockwatch_saved_count", savedCount.toString());
+        localStorage.setItem("stockwatch_shopping_items", JSON.stringify(shoppingItems));
       }
     } catch (e) {
       console.error("Gagal sinkronisasi data:", e);
@@ -1054,6 +1077,12 @@ export default function Home() {
 
   const handleAuthSuccess = async (user: UserProfile) => {
     setCurrentUser(user);
+    // Bersihkan residu guest localStorage
+    localStorage.removeItem("stockwatch_inventory_items");
+    localStorage.removeItem("stockwatch_financial_saved");
+    localStorage.removeItem("stockwatch_saved_count");
+    localStorage.removeItem("stockwatch_shopping_items");
+
     try {
       const data = await loadUserData(user.id);
       if (data !== null) {
@@ -1061,7 +1090,7 @@ export default function Home() {
         setShoppingItems(data.shoppingItems || []);
         setFinancialSaved(data.financialSaved || 0);
         setSavedCount(data.savedCount || 0);
-        showToast(`Data dapur "${user.fullName}" berhasil dimuat!`, "success");
+        showToast(`Dapur "${user.fullName}" berhasil disinkronkan!`, "success");
       } else {
         // Pengguna baru pertama kali mendaftar
         setItems([]);
@@ -1084,11 +1113,39 @@ export default function Home() {
   const handleSignOut = async () => {
     await signOutUser();
     setCurrentUser(null);
+    localStorage.removeItem("stockwatch_active_user");
+    localStorage.removeItem("stockwatch_inventory_items");
+    localStorage.removeItem("stockwatch_financial_saved");
+    localStorage.removeItem("stockwatch_saved_count");
+    localStorage.removeItem("stockwatch_shopping_items");
     setItems([]);
     setShoppingItems([]);
     setFinancialSaved(0);
     setSavedCount(0);
     showToast("Anda telah keluar dari akun. Berpindah ke mode tamu.", "info");
+  };
+
+  const handleClearAccountData = async () => {
+    setItems([]);
+    setShoppingItems([]);
+    setFinancialSaved(0);
+    setSavedCount(0);
+    try {
+      localStorage.removeItem("stockwatch_inventory_items");
+      localStorage.removeItem("stockwatch_financial_saved");
+      localStorage.removeItem("stockwatch_saved_count");
+      localStorage.removeItem("stockwatch_shopping_items");
+      if (currentUser) {
+        localStorage.removeItem(`stockwatch_user_data_${currentUser.id}`);
+        await saveUserData(currentUser.id, {
+          items: [],
+          shoppingItems: [],
+          financialSaved: 0,
+          savedCount: 0,
+        });
+      }
+    } catch (e) {}
+    showToast("Seluruh inventori dan daftar belanja berhasil dikosongkan bersih!", "success");
   };
 
   const handleResetToDefault = () => {
@@ -1549,7 +1606,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] font-sans pb-24 sm:pb-28">
+    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] font-sans pb-24 md:pb-12">
       {/* Toast Notification */}
       {toast && (
         <div className="fixed bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-[#0F172A]/95 backdrop-blur-sm text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl shadow-2xl border border-[#0D9488]/40 z-50 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold transition-all">
@@ -1567,82 +1624,209 @@ export default function Home() {
         </div>
       )}
 
-      {/* Main Container - Responsive Mobile-First App Canvas */}
-      <div className="max-w-2xl mx-auto px-3.5 sm:px-6 pt-3 sm:pt-6">
+      {/* Main Container - Responsive Dual Layout Canvas (Adapts between Windows Desktop and Mobile) */}
+      <div className="max-w-2xl md:max-w-5xl lg:max-w-6xl mx-auto px-3.5 sm:px-6 md:px-8 pt-3 sm:pt-6">
+
+        {/* ========================================================================= */}
+        {/* RESPONSIVE AUTO-DETECTION HEADER                                          */}
+        {/* ========================================================================= */}
+        <header className="flex items-center justify-between mb-5 pb-3.5 border-b border-[#E2E8F0]">
+          {/* Brand Logo & Name */}
+          <div
+            onClick={() => {
+              setActiveTab("stok");
+              setCurrentView("dashboard");
+            }}
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer select-none"
+          >
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-[#0D9488] rounded-xl flex items-center justify-center shadow-sm">
+              <Apple className="w-5 h-5 text-white" strokeWidth={2.2} />
+            </div>
+            <div>
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0F172A] leading-tight">
+                StockWatch
+              </h1>
+              <p className="text-[10px] text-[#64748B] font-semibold hidden md:block">
+                Sistem Pintar Kulkas &amp; Anti Food-Waste
+              </p>
+            </div>
+          </div>
+
+          {/* Desktop Top Navbar (Auto-detected on Windows/Desktop, Hidden on Mobile) */}
+          <nav className="hidden md:flex items-center gap-1.5 bg-[#F1F5F9] p-1.5 rounded-2xl border border-[#E2E8F0]">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("stok");
+                setCurrentView("dashboard");
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === "dashboard"
+                  ? "bg-white text-[#0D9488] shadow-xs"
+                  : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>Stok Kulkas ({items.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("olah");
+                setCurrentView("olah");
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === "olah"
+                  ? "bg-white text-[#0D9488] shadow-xs"
+                  : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
+              }`}
+            >
+              <ChefHat className="w-4 h-4" />
+              <span>Olah Resep</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("add");
+                setCurrentView("quickadd");
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === "quickadd"
+                  ? "bg-[#0D9488] text-white shadow-xs"
+                  : "bg-[#0D9488]/10 text-[#0D9488] hover:bg-[#0D9488] hover:text-white"
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              <span>Quick Add</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("belanja");
+                setCurrentView("belanja");
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === "belanja"
+                  ? "bg-white text-[#0D9488] shadow-xs"
+                  : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
+              }`}
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span>Daftar Belanja ({shoppingItems.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("setting");
+                setCurrentView("setting");
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                currentView === "setting"
+                  ? "bg-white text-[#0D9488] shadow-xs"
+                  : "text-[#64748B] hover:text-[#0F172A] hover:bg-white/60"
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Pengaturan</span>
+            </button>
+          </nav>
+
+          {/* User Account / Auth Actions */}
+          <div className="flex items-center gap-2">
+            {currentUser ? (
+              <div className="flex items-center gap-2">
+                <div
+                  onClick={() => {
+                    setActiveTab("setting");
+                    setCurrentView("setting");
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors shadow-xs"
+                  title="Lihat Akun & Pengaturan"
+                >
+                  <User className="w-3.5 h-3.5 text-[#059669]" />
+                  <span className="truncate max-w-[120px] sm:max-w-[160px]">{currentUser.fullName}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[#E11D48] text-xs font-bold transition shadow-xs"
+                  title="Keluar dari akun"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Keluar</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full bg-[#0D9488] hover:bg-[#0f766e] text-white text-xs font-bold tracking-wide transition-colors shadow-xs active:scale-95"
+                title="Masuk atau Daftar Akun untuk Simpan ke Cloud"
+              >
+                <User className="w-3.5 h-3.5 text-white" />
+                <span>Masuk / Daftar</span>
+              </button>
+            )}
+          </div>
+        </header>
 
         {/* ========================================================================= */}
         {/* VIEW 1: DASHBOARD (Desktop - 1)                                           */}
         {/* ========================================================================= */}
         {currentView === "dashboard" && (
           <div>
-            {/* Top Header */}
-            <header className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <div className="w-9 h-8 sm:w-11 sm:h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
-                  <Apple className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={2.2} />
+            {/* Desktop Top Cards Grid: Weekend Fridge Audit + Hero Financial Metric Card */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              {/* Hero Financial Metric Card */}
+              <div className="w-full bg-[#0D9488] rounded-2xl p-4 sm:p-6 text-white shadow-sm relative overflow-hidden flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] sm:text-xs font-bold tracking-wider text-[#CCFBF1] uppercase">
+                    HEMAT FINANSIAL BULAN INI
+                  </span>
+                  <div className="bg-[#0f766e] px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold text-white flex items-center gap-1.5">
+                    <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" strokeWidth={3} />
+                    <span>Bebas Sampah</span>
+                  </div>
                 </div>
-                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0F172A]">StockWatch</h1>
+                <div>
+                  <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1.5">
+                    Rp {financialSaved.toLocaleString("id-ID")}
+                  </div>
+                  <div className="text-[11px] sm:text-xs font-medium text-[#E6FFFA]">
+                    {savedCount} bahan makanan diselamatkan sebelum kedaluwarsa
+                  </div>
+                </div>
               </div>
 
-              {/* User Profile or Auth Trigger */}
-              {currentUser ? (
-                <div
-                  onClick={() => {
-                    setActiveTab("setting");
-                    setCurrentView("setting");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-[11px] sm:text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors"
-                  title="Lihat Akun & Pengaturan Database"
-                >
-                  <User className="w-3.5 h-3.5 text-[#059669]" />
-                  <span className="truncate max-w-[120px] sm:max-w-[160px]">{currentUser.fullName}</span>
+              {/* Weekend Fridge Audit Banner */}
+              <div className="w-full bg-[#F0FDFA] border border-[#0D9488] rounded-2xl p-4 sm:p-6 flex flex-col justify-between shadow-sm">
+                <div className="flex items-center justify-between mb-2 sm:mb-3">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-[#0D9488]">
+                    <Calendar className="w-4 h-4 text-[#0D9488]" />
+                    <span>Weekend Fridge Audit (60s)</span>
+                  </div>
+                  <span className="text-[10px] bg-[#CCFBF1] text-[#0F766E] font-bold px-2.5 py-0.5 rounded-full">
+                    Rutin Mingguan
+                  </span>
                 </div>
-              ) : (
+                <p className="text-xs text-[#0F766E] leading-relaxed mb-4">
+                  Sinkronkan inventori kulkas dalam 60 detik setiap akhir pekan. Otomatis membersihkan bahan kadaluwarsa &amp; mencatat belanjaan.
+                </p>
                 <button
                   type="button"
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-[#0D9488] hover:bg-[#0f766e] text-white text-[11px] sm:text-xs font-bold tracking-wide transition-colors shadow-xs active:scale-95"
-                  title="Masuk atau Daftar Akun untuk Simpan ke Database"
+                  onClick={() => {
+                    setAuditStep(0);
+                    setIsAuditOpen(true);
+                  }}
+                  className="w-full bg-[#0D9488] hover:bg-[#0f766e] text-white text-xs font-bold py-2.5 rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2"
                 >
-                  <User className="w-3.5 h-3.5 text-white" />
-                  <span>Masuk / Daftar</span>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Mulai Audit Kulkas (60 Detik)</span>
                 </button>
-              )}
-            </header>
-
-            {/* Weekend Fridge Audit Banner */}
-            <div className="w-full bg-[#F0FDFA] border border-[#0D9488] rounded-xl px-4 py-2.5 sm:px-5 flex items-center justify-between mb-3.5 shadow-sm">
-              <div className="flex items-center gap-2 sm:gap-2.5 text-xs sm:text-sm font-semibold text-[#0D9488]">
-                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#0D9488]" />
-                <span>Weekend Fridge Audit (60s)</span>
-              </div>
-              <button
-                onClick={() => {
-                  setAuditStep(0);
-                  setIsAuditOpen(true);
-                }}
-                className="bg-[#0D9488] hover:bg-[#0f766e] text-white text-[11px] sm:text-xs font-bold px-3 py-1.5 sm:px-4 rounded-lg transition-colors shadow-sm"
-              >
-                Mulai (60s)
-              </button>
-            </div>
-
-            {/* Hero Financial Metric Card */}
-            <div className="w-full bg-[#0D9488] rounded-2xl p-4 sm:p-6 text-white mb-4 shadow-sm relative overflow-hidden">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] sm:text-xs font-bold tracking-wider text-[#CCFBF1] uppercase">
-                  HEMAT FINANSIAL BULAN INI
-                </span>
-                <div className="bg-[#0f766e] px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold text-white flex items-center gap-1.5">
-                  <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" strokeWidth={3} />
-                  <span>Bebas Sampah</span>
-                </div>
-              </div>
-              <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1.5">
-                Rp {financialSaved.toLocaleString("id-ID")}
-              </div>
-              <div className="text-[11px] sm:text-xs font-medium text-[#E6FFFA]">
-                {savedCount} bahan makanan diselamatkan sebelum kedaluwarsa
               </div>
             </div>
 
@@ -1741,10 +1925,10 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Inventory Item Cards List */}
-            <div className="flex flex-col gap-2.5">
+            {/* Inventory Item Cards List (Adaptive 1 col on mobile, 2 cols on Windows/Desktop) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {filteredItems.length === 0 ? (
-                <div className="w-full bg-white border border-dashed border-[#CBD5E1] rounded-2xl py-12 px-6 flex flex-col items-center justify-center text-center animate-in fade-in duration-150">
+                <div className="col-span-full w-full bg-white border border-dashed border-[#CBD5E1] rounded-2xl py-12 px-6 flex flex-col items-center justify-center text-center animate-in fade-in duration-150">
                   <div className="w-12 h-12 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-center text-[#94A3B8] mb-3">
                     <Refrigerator className="w-6 h-6 opacity-60" />
                   </div>
@@ -1852,13 +2036,11 @@ export default function Home() {
         {/* ========================================================================= */}
         {currentView === "quickadd" && (
           <div className="animate-in fade-in duration-200">
-            {/* Top Header */}
-            <header className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
-                  <Apple className="w-5 h-5 text-white" strokeWidth={2.2} />
-                </div>
-                <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Quick Add</h1>
+            {/* View Sub-Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Plus className="w-5 h-5 text-[#0D9488]" />
+                <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Quick Add (Input Cepat)</h1>
               </div>
 
               {/* Target <5 Detik Badge */}
@@ -1866,7 +2048,7 @@ export default function Home() {
                 <Zap className="w-3.5 h-3.5 text-[#059669]" />
                 <span>Target &lt;5 Detik</span>
               </div>
-            </header>
+            </div>
 
             {/* Modal Top Handle pill */}
             <div className="w-full flex justify-center mb-2">
@@ -2227,13 +2409,11 @@ export default function Home() {
 
           return (
             <div className="animate-in fade-in duration-200">
-              {/* Top Header */}
-              <header className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
-                    <Apple className="w-5 h-5 text-white" strokeWidth={2.2} />
-                  </div>
-                  <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Olah Resep</h1>
+              {/* View Sub-Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <ChefHat className="w-5 h-5 text-[#0D9488]" />
+                  <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Olah Resep Masak</h1>
                 </div>
 
                 {/* Anti Bahan Basi Badge */}
@@ -2241,7 +2421,7 @@ export default function Home() {
                   <ShieldCheck className="w-3.5 h-3.5 text-[#059669]" />
                   <span>Anti Bahan Basi</span>
                 </div>
-              </header>
+              </div>
 
               {items.length === 0 ? (
                 /* Empty state when fridge is empty */
@@ -2573,27 +2753,40 @@ export default function Home() {
         {currentView === "belanja" && (
           <div className="animate-in fade-in duration-200">
             {/* Top Header */}
-            <header className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
-                  <Apple className="w-5 h-5 text-white" strokeWidth={2.2} />
-                </div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-[#0D9488]" />
                 <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Daftar Belanja</h1>
               </div>
 
-              {/* Anti-Impulsif Badge */}
-              <div className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-xs font-bold tracking-wide">
-                <ShoppingCart className="w-3.5 h-3.5 text-[#059669]" />
-                <span>Anti-Impulsif</span>
+              <div className="flex items-center gap-2">
+                {shoppingItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShoppingItems([]);
+                      showToast("Daftar belanja berhasil dikosongkan bersih!", "delete");
+                    }}
+                    className="px-3 py-1.5 rounded-full border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[#E11D48] text-xs font-bold transition flex items-center gap-1.5"
+                    title="Hapus semua belanjaan"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Kosongkan Belanjaan</span>
+                  </button>
+                )}
+                <div className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-xs font-bold tracking-wide">
+                  <ShoppingCart className="w-3.5 h-3.5 text-[#059669]" />
+                  <span>Anti-Impulsif</span>
+                </div>
               </div>
-            </header>
+            </div>
 
             {/* Subtitle */}
             <p className="text-xs text-[#64748B] mb-5">
-              Otomatis terisi dari bahan yang habis saat audit kulkas.
+              Otomatis terisi dari bahan yang habis saat audit kulkas atau ditambahkan manual.
             </p>
 
-            {/* Shopping Items List */}
+            {/* Shopping Items List (Adaptive 1 col on mobile, 2 cols on Windows/Desktop) */}
             {shoppingItems.length === 0 ? (
               <div className="w-full bg-white border border-dashed border-[#CBD5E1] rounded-2xl py-12 px-6 flex flex-col items-center justify-center text-center shadow-xs mb-5">
                 <div className="w-12 h-12 rounded-2xl bg-[#F0FDFA] border border-[#CCFBF1] flex items-center justify-center text-[#0D9488] mb-3">
@@ -2607,7 +2800,7 @@ export default function Home() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3 mb-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mb-5">
                 {shoppingItems.map((item) => (
                   <div
                     key={item.id}
@@ -2727,13 +2920,11 @@ export default function Home() {
         {/* ========================================================================= */}
         {currentView === "setting" && (
           <div className="animate-in fade-in duration-200">
-            {/* Top Header */}
-            <header className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
-                  <Apple className="w-5 h-5 text-white" strokeWidth={2.2} />
-                </div>
-                <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Pengaturan PWA</h1>
+            {/* View Sub-Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-[#0D9488]" />
+                <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">Pengaturan Aplikasi &amp; Akun</h1>
               </div>
 
               {/* Notifikasi Cerdas Badge */}
@@ -2741,7 +2932,7 @@ export default function Home() {
                 <Settings className="w-3.5 h-3.5 text-[#059669]" />
                 <span>Notifikasi Cerdas</span>
               </div>
-            </header>
+            </div>
 
             {/* Section 0: Akun Pengguna & Status Sinkronisasi Database */}
             <div className="mb-6">
@@ -2946,13 +3137,49 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {/* Section 3: Reset & Pembersihan Data */}
+            <div className="mb-6">
+              <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase mb-3.5">
+                KONTROL &amp; PEMBERSIHAN DATA
+              </h2>
+
+              <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm">
+                <div className="text-sm font-bold text-[#0F172A] mb-1">
+                  Mulai Bersih atau Muat Data Demo
+                </div>
+                <p className="text-xs text-[#64748B] mb-4">
+                  Anda dapat mengosongkan seluruh stok dan daftar belanja ke 0, atau memuat bahan contoh untuk simulasi demo.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleClearAccountData}
+                    className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold text-[#E11D48] flex items-center gap-2 transition-colors shadow-xs"
+                  >
+                    <Trash2 className="w-4 h-4 text-[#E11D48]" />
+                    <span>Kosongkan Semua Data (Reset ke 0)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetToDefault}
+                    className="px-4 py-2.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#475569] flex items-center gap-2 transition-colors shadow-xs"
+                  >
+                    <RotateCcw className="w-4 h-4 text-[#475569]" />
+                    <span>Muat Data Demo Bawaan</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
       </div>
 
-      {/* Floating / Sticky Bottom Navigation Bar matching the Figma Design exactly */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E2E8F0] shadow-lg z-40 pb-[env(safe-area-inset-bottom,0px)]">
+      {/* Floating / Sticky Bottom Navigation Bar (Auto-hidden on Windows/Desktop >=768px, Visible on Mobile) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E2E8F0] shadow-lg z-40 pb-[env(safe-area-inset-bottom,0px)]">
         <div className="max-w-2xl mx-auto h-16 sm:h-20 flex items-center justify-around px-3 sm:px-6 relative">
 
           {/* Stok Tab */}
