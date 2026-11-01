@@ -4,6 +4,14 @@ import React, { useState, useRef, useEffect } from "react";
 import SettingsModal from "@/components/SettingsModal";
 import RecipeModal from "@/components/RecipeModal";
 import ManualAddModal from "@/components/ManualAddModal";
+import AuthModal from "@/components/AuthModal";
+import {
+  getCurrentUser,
+  signOutUser,
+  saveUserData,
+  loadUserData,
+  UserProfile,
+} from "@/lib/db";
 import {
   Apple,
   Leaf,
@@ -46,6 +54,9 @@ import {
   Upload,
   Image as ImageIcon,
   RotateCcw,
+  User,
+  LogOut,
+  Database,
 } from "lucide-react";
 
 interface InventoryItem {
@@ -73,6 +84,11 @@ interface ShoppingItem {
   priceDisplay: string;
   checked: boolean;
   statusNote?: string;
+  qty?: string;
+  category?: "cook" | "ready";
+  locationType?: "fridge" | "freezer";
+  location?: string;
+  expiryDays?: number;
 }
 
 const renderFoodIcon = (item: { name: string; category?: string }, className: string = "w-5 h-5") => {
@@ -196,12 +212,11 @@ const DEFAULT_SHOPPING_ITEMS: ShoppingItem[] = [
   {
     id: 1,
     name: "Telur Ayam Kampung (10 butir)",
-    subtitle: "Dibeli • Otomatis masuk stok kulkas!",
-    subtitleColor: "text-[#059669]",
-    price: 0,
-    priceDisplay: "",
-    checked: true,
-    statusNote: "Dibeli • Otomatis masuk stok kulkas!",
+    subtitle: "Kebutuhan protein mingguan",
+    subtitleColor: "text-[#64748B]",
+    price: 26000,
+    priceDisplay: "~Rp 26.000",
+    checked: false,
   },
   {
     id: 2,
@@ -243,6 +258,25 @@ interface DynamicRecipe {
   financialSaved: number;
   steps: string[];
   isPrimary?: boolean;
+  isReadyFood?: boolean;
+}
+
+export function isReadyFood(item?: { name?: string; category?: string; location?: string } | null): boolean {
+  if (!item) return false;
+  if (item.category === "ready") return true;
+  const loc = (item.location || "").toLowerCase();
+  if (loc.includes("saji") || loc.includes("matang") || loc.includes("meja")) return true;
+  const n = (item.name || "").toLowerCase();
+  const readyKeywords = [
+    "burger", "pizza", "nasi goreng", "nasi uduk", "nasi padang", "nasi kuning", "nasi campur",
+    "ayam geprek", "ayam goreng", "ayam bakar", "ayam krispi", "fried chicken", "nugget",
+    "mie goreng", "mie rebus", "mie ayam", "bakso", "soto", "sate", "rendang",
+    "martabak", "roti", "sandwich", "donut", "donat", "kue", "pastry", "croissant",
+    "sisa lauk", "lauk matang", "makanan jadi", "makanan matang", "gulai", "rawon", "pecel", "capcay",
+    "siomay", "batagor", "dimsum", "hotdog", "taco", "kebab", "pasta", "spaghetti", "lasagna",
+    "olahan matang", "siap saji"
+  ];
+  return readyKeywords.some((kw) => n.includes(kw));
 }
 
 function isSweetItem(name: string): boolean {
@@ -319,7 +353,50 @@ function getDynamicRecipes(
     const n = item.name.toLowerCase();
     const itemPrice = item.price || 25000;
 
-    // A. Olahan Makanan Manis / Martabak / Kue / Roti / Dessert
+    // A. MAKANAN SUDAH JADI / SIAP SAJI (Prioritas Cepat Dikonsumsi, Bukan Resep Masak dari Nol)
+    if (isReadyFood(item)) {
+      return {
+        criticalItems,
+        recipes: [
+          {
+            id: `ready-eat-${item.id}-1`,
+            title: `Santap Kilat / Hangatkan (${item.name})`,
+            time: "2-3 Menit",
+            level: "Siap Santap (Cepat Konsumsi)",
+            serving: item.qty || "Porsi 1-2 Orang",
+            badge: "⚡ Makanan Jadi - Prioritas Konsumsi",
+            usedItems: [item],
+            financialSaved: itemPrice,
+            isReadyFood: true,
+            steps: [
+              `1. Status Pangan: "${item.name}" adalah hidangan sudah matang / siap saji. Masa simpannya di kulkas sangat singkat, prioritaskan untuk segera dihabiskan agar tekstur dan kelezatannya tetap prima.`,
+              `2. Opsi Hangatkan Kilat: Jika ingin dinikmati hangat, hangatkan di microwave selama 30-60 detik atau panaskan di atas wajan teflon api kecil bertutup rapat selama 2-3 menit (tanpa minyak tambahan).`,
+              `3. Siap Disantap: Nikmati selagi hangat! Tidak perlu dimasak ulang dari awal atau ditambah bumbu mentah lainnya.`
+            ],
+            isPrimary: true,
+          },
+          {
+            id: `ready-eat-${item.id}-2`,
+            title: `Tips Simpan Aman Jika Ditunda (${item.name})`,
+            time: "1 Menit",
+            level: "Penyimpanan Sementara",
+            serving: item.qty || "Porsi 1 Orang",
+            badge: "Cegah Basi",
+            usedItems: [item],
+            financialSaved: Math.round(itemPrice * 0.9),
+            isReadyFood: true,
+            steps: [
+              `1. Jika belum ingin disantap saat ini, segera simpan "${item.name}" ke dalam wadah kedap udara (food container).`,
+              `2. Tempatkan di chiller kulkas (suhu 4°C) maksimal 24 jam ke depan, atau di freezer jika ingin diawetkan lebih lama.`,
+              `3. Usahakan untuk tetap menghabiskannya pada jam makan terdekat untuk mencegah berkembangnya bakteri.`
+            ],
+            isPrimary: false,
+          },
+        ],
+      };
+    }
+
+    // B. Olahan Makanan Manis / Martabak / Kue / Roti / Dessert
     if (isSweetItem(item.name)) {
       return {
         criticalItems,
@@ -569,6 +646,96 @@ function getDynamicRecipes(
   const item2 = selectedItems[1];
   const totalValue = (item1.price || 25000) + (item2.price || 25000);
 
+  const isReady1 = isReadyFood(item1);
+  const isReady2 = isReadyFood(item2);
+
+  // KASUS 2-READY: KEDUANYA ADALAH MAKANAN SUDAH JADI / SIAP SANTAP
+  if (isReady1 && isReady2) {
+    return {
+      criticalItems,
+      recipes: [
+        {
+          id: `combo-ready-both`,
+          title: `Paket Santap Kilat: ${item1.name} & ${item2.name}`,
+          time: "3-5 Menit",
+          level: "Langsung Santap Tanpa Masak",
+          serving: "Porsi 1-2 Orang",
+          badge: "⚡ Menu Siap Saji - Konsumsi Sekarang",
+          usedItems: [item1, item2],
+          financialSaved: totalValue,
+          isReadyFood: true,
+          steps: [
+            `1. Kedua hidangan ini (${item1.name} & ${item2.name}) adalah makanan siap saji yang sudah matang. Prioritaskan untuk dihabiskan segera hari ini demi mencegah basi dan food-waste.`,
+            `2. Hangatkan sebentar di microwave atau teflon api kecil selama 2-3 menit jika ingin dinikmati hangat.`,
+            `3. Sajikan langsung di meja makan sebagai santapan praktis zero-waste tanpa memerlukan proses memasak lama!`
+          ],
+          isPrimary: true,
+        },
+        {
+          id: `single-ready-p1`,
+          title: `Santap Cepat Prioritas Utama (${item1.name})`,
+          time: "2 Menit",
+          level: "Siap Santap",
+          serving: "Porsi 1 Orang",
+          badge: "Prioritas Konsumsi",
+          usedItems: [item1],
+          financialSaved: item1.price || 25000,
+          isReadyFood: true,
+          steps: [
+            `1. Dahulukan untuk menghabiskan ${item1.name} terlebih dahulu sebelum menyentuh stok lainnya.`,
+            `2. Hangatkan 1-2 menit hingga aroma harum keluar, lalu santap selagi hangat.`
+          ],
+          isPrimary: false,
+        },
+      ],
+    };
+  }
+
+  // KASUS 2-HYBRID: SATU MAKANAN JADI + SATU BAHAN MENTAH
+  if (isReady1 || isReady2) {
+    const readyItem = isReady1 ? item1 : item2;
+    const rawItem = isReady1 ? item2 : item1;
+
+    return {
+      criticalItems,
+      recipes: [
+        {
+          id: `combo-ready-raw`,
+          title: `Santap Cepat ${readyItem.name} + Pendamping Sayur ${rawItem.name}`,
+          time: "5-7 Menit",
+          level: "Santap Cepat Bergizi",
+          serving: "Porsi 1-2 Orang",
+          badge: "⚡ Makanan Jadi + Lauk Pendamping",
+          usedItems: [readyItem, rawItem],
+          financialSaved: totalValue,
+          isReadyFood: true,
+          steps: [
+            `1. Makanan Siap Saji: ${readyItem.name} sudah matang. Cukup hangatkan 1-2 menit di teflon api kecil atau microwave.`,
+            `2. Bahan Mentah Pendamping: Tumis kilat ${rawItem.name} dengan sedikit bawang putih dan garam selama 3 menit sebagai pelengkap serat bergizi.`,
+            `3. Sajikan ${readyItem.name} bersama sayur ${rawItem.name} hangat untuk makan siang/malam seimbang tanpa membuang stok dapur!`
+          ],
+          isPrimary: true,
+        },
+        {
+          id: `single-ready-direct`,
+          title: `Santap Langsung ${readyItem.name} (Tanpa Masak)`,
+          time: "2 Menit",
+          level: "Siap Santap",
+          serving: "Porsi 1 Orang",
+          badge: "Habiskan Segera",
+          usedItems: [readyItem],
+          financialSaved: readyItem.price || 25000,
+          isReadyFood: true,
+          steps: [
+            `1. Jangan biarkan ${readyItem.name} menginap terlalu lama di kulkas karena sudah matang.`,
+            `2. Hangatkan sebentar bila perlu, lalu habiskan sekarang juga.`
+          ],
+          isPrimary: false,
+        },
+      ],
+    };
+  }
+
   const isSweet1 = isSweetItem(item1.name) || isDrinkItem(item1.name);
   const isSweet2 = isSweetItem(item2.name) || isDrinkItem(item2.name);
 
@@ -742,6 +909,10 @@ function getDynamicRecipes(
 }
 
 export default function Home() {
+  // User Authentication & Database States
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
   // Page mode: "dashboard" (Screen 1), "quickadd" (Screen 2), "olah" (Screen 3), "belanja" (Screen 4), or "setting" (Screen 5)
   const [currentView, setCurrentView] = useState<"dashboard" | "quickadd" | "olah" | "belanja" | "setting">("dashboard");
   const [financialSaved, setFinancialSaved] = useState<number>(285000);
@@ -750,39 +921,77 @@ export default function Home() {
   const [items, setItems] = useState<InventoryItem[]>(DEFAULT_ITEMS);
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(DEFAULT_SHOPPING_ITEMS);
 
-  // Load persisted state from localStorage on mount
+  // Load persisted state from Database or localStorage on mount
   useEffect(() => {
-    try {
-      const storedItems = localStorage.getItem("stockwatch_inventory_items");
-      if (storedItems !== null) {
-        const parsed = JSON.parse(storedItems);
-        if (Array.isArray(parsed)) {
-          setItems(parsed);
+    const initData = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (user) {
+          setCurrentUser(user);
+          const userData = await loadUserData(user.id);
+          if (userData && (userData.items.length > 0 || userData.shoppingItems.length > 0)) {
+            setItems(userData.items);
+            setShoppingItems(userData.shoppingItems);
+            setFinancialSaved(userData.financialSaved);
+            setSavedCount(userData.savedCount);
+            setIsClientLoaded(true);
+            return;
+          }
         }
-      }
-      const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
-      if (storedFinancial !== null) {
-        setFinancialSaved(Number(storedFinancial) || 0);
-      }
-      const storedCount = localStorage.getItem("stockwatch_saved_count");
-      if (storedCount !== null) {
-        setSavedCount(Number(storedCount) || 0);
-      }
-      const storedShopping = localStorage.getItem("stockwatch_shopping_items");
-      if (storedShopping !== null) {
-        const parsed = JSON.parse(storedShopping);
-        if (Array.isArray(parsed)) {
-          setShoppingItems(parsed);
+
+        // Local storage fallback for guest or offline mode
+        const storedItems = localStorage.getItem("stockwatch_inventory_items");
+        if (storedItems !== null) {
+          const parsed = JSON.parse(storedItems);
+          if (Array.isArray(parsed)) {
+            const healed = parsed.map((it: InventoryItem) => {
+              if (it.category !== "ready" && isReadyFood(it)) {
+                return { ...it, category: "ready" as const };
+              }
+              return it;
+            });
+            setItems(healed);
+          }
         }
+        const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
+        if (storedFinancial !== null) {
+          setFinancialSaved(Number(storedFinancial) || 0);
+        }
+        const storedCount = localStorage.getItem("stockwatch_saved_count");
+        if (storedCount !== null) {
+          setSavedCount(Number(storedCount) || 0);
+        }
+        const storedShopping = localStorage.getItem("stockwatch_shopping_items");
+        if (storedShopping !== null) {
+          const parsed = JSON.parse(storedShopping);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.map((it: ShoppingItem) => {
+              if (it.subtitle?.includes("Otomatis masuk stok")) {
+                return {
+                  ...it,
+                  checked: false,
+                  subtitle: "Kebutuhan protein mingguan",
+                  subtitleColor: "text-[#64748B]",
+                  price: it.price || 26000,
+                  priceDisplay: it.priceDisplay || "~Rp 26.000",
+                };
+              }
+              return it;
+            });
+            setShoppingItems(cleaned);
+          }
+        }
+      } catch (e) {
+        console.error("Gagal membaca database / localStorage:", e);
+      } finally {
+        setIsClientLoaded(true);
       }
-    } catch (e) {
-      console.error("Gagal membaca localStorage", e);
-    } finally {
-      setIsClientLoaded(true);
-    }
+    };
+
+    initData();
   }, []);
 
-  // Save to localStorage whenever states change
+  // Sync to database and localStorage whenever data states change
   useEffect(() => {
     if (!isClientLoaded) return;
     try {
@@ -790,10 +999,53 @@ export default function Home() {
       localStorage.setItem("stockwatch_financial_saved", financialSaved.toString());
       localStorage.setItem("stockwatch_saved_count", savedCount.toString());
       localStorage.setItem("stockwatch_shopping_items", JSON.stringify(shoppingItems));
+
+      if (currentUser) {
+        saveUserData(currentUser.id, {
+          items,
+          shoppingItems,
+          financialSaved,
+          savedCount,
+        });
+      }
     } catch (e) {
-      console.error("Gagal menyimpan ke localStorage", e);
+      console.error("Gagal sinkronisasi data:", e);
     }
-  }, [items, financialSaved, savedCount, shoppingItems, isClientLoaded]);
+  }, [items, financialSaved, savedCount, shoppingItems, isClientLoaded, currentUser]);
+
+  const handleAuthSuccess = async (user: UserProfile) => {
+    setCurrentUser(user);
+    try {
+      const data = await loadUserData(user.id);
+      if (data && (data.items.length > 0 || data.shoppingItems.length > 0)) {
+        setItems(data.items);
+        setShoppingItems(data.shoppingItems);
+        setFinancialSaved(data.financialSaved);
+        setSavedCount(data.savedCount);
+        showToast(`Data dapur "${user.fullName}" berhasil dimuat!`, "success");
+      } else {
+        await saveUserData(user.id, {
+          items,
+          shoppingItems,
+          financialSaved,
+          savedCount,
+        });
+        showToast(`Akun "${user.fullName}" siap! Data inventori tersinkron.`, "success");
+      }
+    } catch (e) {
+      console.error("Gagal sinkronisasi saat login:", e);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOutUser();
+    setCurrentUser(null);
+    setItems(DEFAULT_ITEMS);
+    setShoppingItems(DEFAULT_SHOPPING_ITEMS);
+    setFinancialSaved(285000);
+    setSavedCount(5);
+    showToast("Anda telah keluar dari akun. Berpindah ke mode tamu.", "info");
+  };
 
   const handleResetToDefault = () => {
     try {
@@ -881,6 +1133,12 @@ export default function Home() {
   const [isAddShoppingModalOpen, setIsAddShoppingModalOpen] = useState(false);
   const [newShoppingName, setNewShoppingName] = useState("");
   const [newShoppingPrice, setNewShoppingPrice] = useState("");
+  const [newShoppingQty, setNewShoppingQty] = useState("1");
+  const [newShoppingUnit, setNewShoppingUnit] = useState("porsi");
+  const [newShoppingCategory, setNewShoppingCategory] = useState<"cook" | "ready">("cook");
+  const [newShoppingLocationType, setNewShoppingLocationType] = useState<"fridge" | "freezer">("fridge");
+  const [newShoppingLocation, setNewShoppingLocation] = useState("Kulkas Utama");
+  const [newShoppingExpiryDays, setNewShoppingExpiryDays] = useState(7);
 
   const estimatedShoppingTotal = shoppingItems
     .filter((item) => !item.checked)
@@ -891,30 +1149,12 @@ export default function Home() {
       prev.map((item) => {
         if (item.id === id) {
           const nextChecked = !item.checked;
-          if (nextChecked) {
-            // Automatically add to inventory
-            const cleanName = item.name.split("(")[0].trim();
-            const cleanQty = item.name.includes("(")
-              ? item.name.split("(")[1].replace(")", "").trim()
-              : "1 porsi";
-            const autoItem: InventoryItem = {
-              id: Date.now(),
-              name: cleanName,
-              qty: cleanQty,
-              expiryText: "7 Hari Lagi",
-              expiryColor: "text-[#059669]",
-              borderColor: "border-l-[#059669]",
-              location: "Kulkas Utama",
-              category: "cook",
-              locationType: "fridge",
-              actionIcon: "edit",
-              price: item.price || 20000,
-            };
-            setItems((prevItems) => [autoItem, ...prevItems]);
-            showToast(`"${item.name}" dibeli! Otomatis masuk stok kulkas.`, "cart");
-          } else {
-            showToast(`Status "${item.name}" dikembalikan`, "info");
-          }
+          showToast(
+            nextChecked
+              ? `"${item.name}" ditandai sudah dibeli`
+              : `"${item.name}" ditandai belum dibeli`,
+            nextChecked ? "cart" : "info"
+          );
           return {
             ...item,
             checked: nextChecked,
@@ -925,22 +1165,87 @@ export default function Home() {
     );
   };
 
+  const handleDeleteShoppingItem = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const itemToDelete = shoppingItems.find((i) => i.id === id);
+    setShoppingItems((prev) => prev.filter((i) => i.id !== id));
+    showToast(`"${itemToDelete?.name || "Barang"}" dihapus dari daftar belanja`, "delete");
+  };
+
+  const handleMoveCheckedToInventory = () => {
+    const checkedItems = shoppingItems.filter((i) => i.checked);
+    if (checkedItems.length === 0) return;
+
+    const newInventoryItems: InventoryItem[] = checkedItems.map((item) => {
+      const cleanName = item.name.split("(")[0].trim();
+      const cleanQty = item.qty || (item.name.includes("(")
+        ? item.name.split("(")[1].replace(")", "").trim()
+        : "1 porsi");
+      
+      const isReady = item.category === "ready" || isReadyFood({ name: cleanName, category: item.category });
+      const isFreezer = item.locationType === "freezer";
+      const expDays = item.expiryDays || 7;
+      const expText = expDays <= 1 ? "1 Hari Lagi (H-1)" : `${expDays} Hari Lagi`;
+      const expColor = expDays <= 2 ? "text-[#E11D48]" : expDays <= 4 ? "text-[#D97706]" : "text-[#059669]";
+      const borderCol = expDays <= 2 ? "border-l-[#E11D48]" : expDays <= 4 ? "border-l-[#D97706]" : "border-l-[#059669]";
+
+      return {
+        id: Date.now() + Math.random(),
+        name: cleanName,
+        qty: cleanQty,
+        expiryText: expText,
+        expiryColor: expColor,
+        borderColor: borderCol,
+        location: item.location || (isFreezer ? "Freezer Utama" : "Kulkas Utama"),
+        category: isReady ? "ready" : "cook",
+        locationType: isFreezer ? "freezer" : "fridge",
+        actionIcon: "edit",
+        price: item.price || 20000,
+      };
+    });
+
+    setItems((prevItems) => [...newInventoryItems, ...prevItems]);
+    setShoppingItems((prev) => prev.filter((i) => !i.checked));
+    showToast(
+      `${checkedItems.length} barang belanjaan berhasil dimasukkan ke stok kulkas!`,
+      "success"
+    );
+  };
+
   const handleAddShoppingItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newShoppingName.trim()) return;
     const priceNum = parseInt(newShoppingPrice.replace(/\D/g, "")) || 0;
+    const qtyFormatted = `${newShoppingQty || "1"} ${newShoppingUnit}`;
+    const fullItemName = `${newShoppingName.trim()} (${qtyFormatted})`;
+
+    const isReady = newShoppingCategory === "ready" || isReadyFood({ name: newShoppingName });
+    const locationName = newShoppingLocation || (newShoppingLocationType === "freezer" ? "Freezer Utama" : "Kulkas Utama");
+
     const newItem: ShoppingItem = {
       id: Date.now(),
-      name: newShoppingName.trim(),
-      subtitle: "Kebutuhan belanja tambahan",
-      subtitleColor: "text-[#64748B]",
+      name: fullItemName,
+      subtitle: `${isReady ? "Siap Saji" : "Bahan Masak"} • Simpan di ${locationName}`,
+      subtitleColor: isReady ? "text-[#7C3AED]" : "text-[#059669]",
       price: priceNum,
       priceDisplay: priceNum > 0 ? `~Rp ${priceNum.toLocaleString("id-ID")}` : "",
       checked: false,
+      qty: qtyFormatted,
+      category: isReady ? "ready" : "cook",
+      locationType: newShoppingLocationType,
+      location: locationName,
+      expiryDays: newShoppingExpiryDays,
     };
+
     setShoppingItems((prev) => [...prev, newItem]);
     setNewShoppingName("");
     setNewShoppingPrice("");
+    setNewShoppingQty("1");
+    setNewShoppingUnit("porsi");
+    setNewShoppingCategory("cook");
+    setNewShoppingLocationType("fridge");
+    setNewShoppingLocation("Kulkas Utama");
+    setNewShoppingExpiryDays(7);
     setIsAddShoppingModalOpen(false);
     showToast(`"${newItem.name}" ditambahkan ke daftar belanja!`, "cart");
   };
@@ -1036,11 +1341,14 @@ export default function Home() {
       return next;
     });
     setRecipePrefilledItem(undefined);
+    const hasReady = itemNames.some((name) => isReadyFood({ name }));
     showToast(
-      `Menu "${recipeName}" berhasil dimasak! Finansial +Rp ${financialValue.toLocaleString(
-        "id-ID"
-      )}, bahan kulkas otomatis berkurang.`,
-      "cook"
+      hasReady
+        ? `"${recipeName}" berhasil disantap & dinikmati! Finansial terselamatkan +Rp ${financialValue.toLocaleString("id-ID")}.`
+        : `Menu "${recipeName}" berhasil dimasak! Finansial +Rp ${financialValue.toLocaleString(
+            "id-ID"
+          )}, bahan kulkas otomatis berkurang.`,
+      hasReady ? "save" : "cook"
     );
   };
 
@@ -1095,7 +1403,7 @@ export default function Home() {
       try {
         const formData = new FormData();
         formData.append("image", file);
-        formData.append("model", "gemini-3.1-flash-lite");
+        formData.append("model", "gemini-3.5-flash-lite");
 
         const res = await fetch("/api/scan", {
           method: "POST",
@@ -1123,7 +1431,18 @@ export default function Home() {
         const unitPrice = Math.max(1000, Math.round(totalEstimatedPrice / qtyNumber));
 
         // Determine category & label
-        const isReady = primary.tipe_makanan === "olahan_matang";
+        const isReady =
+          primary.tipe_makanan === "olahan_matang" ||
+          primary.tipe_makanan === "siap_saji" ||
+          primary.tipe_makanan === "kemasan_pabrik" ||
+          (primary.kategori && (
+            primary.kategori.toLowerCase().includes("matang") ||
+            primary.kategori.toLowerCase().includes("saji") ||
+            primary.kategori.toLowerCase().includes("kuliner") ||
+            primary.kategori.toLowerCase().includes("roti") ||
+            primary.kategori.toLowerCase().includes("camilan")
+          )) ||
+          isReadyFood({ name: primary.nama_produk, location: primary.daya_tahan?.rekomendasi_simpan });
         const catLabel = primary.kategori || (isReady ? "Siap Saji" : "Bahan Mentah");
 
         // Determine expiry text & color
@@ -1186,26 +1505,26 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] font-sans pb-28">
+    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] font-sans pb-24 sm:pb-28">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#0F172A]/95 backdrop-blur-sm text-white px-5 py-3 rounded-xl shadow-2xl border border-[#0D9488]/40 z-50 flex items-center gap-2.5 text-sm font-semibold transition-all">
-          {toast.type === "success" && <CheckCircle2 className="w-4 h-4 text-[#34D399]" />}
-          {toast.type === "save" && <Save className="w-4 h-4 text-[#34D399]" />}
-          {toast.type === "cart" && <ShoppingCart className="w-4 h-4 text-[#34D399]" />}
-          {toast.type === "cook" && <ChefHat className="w-4 h-4 text-[#2DD4BF]" />}
-          {toast.type === "warning" && <AlertTriangle className="w-4 h-4 text-amber-400" />}
-          {toast.type === "error" && <AlertCircle className="w-4 h-4 text-rose-400" />}
-          {toast.type === "delete" && <Trash2 className="w-4 h-4 text-rose-400" />}
-          {toast.type === "camera" && <Camera className="w-4 h-4 text-[#2DD4BF]" />}
-          {toast.type === "settings" && <Settings className="w-4 h-4 text-[#2DD4BF]" />}
-          {toast.type === "info" && <Info className="w-4 h-4 text-[#38BDF8]" />}
-          <span>{toast.message}</span>
+        <div className="fixed bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-[#0F172A]/95 backdrop-blur-sm text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl shadow-2xl border border-[#0D9488]/40 z-50 flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold transition-all">
+          {toast.type === "success" && <CheckCircle2 className="w-4 h-4 text-[#34D399] shrink-0" />}
+          {toast.type === "save" && <Save className="w-4 h-4 text-[#34D399] shrink-0" />}
+          {toast.type === "cart" && <ShoppingCart className="w-4 h-4 text-[#34D399] shrink-0" />}
+          {toast.type === "cook" && <ChefHat className="w-4 h-4 text-[#2DD4BF] shrink-0" />}
+          {toast.type === "warning" && <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
+          {toast.type === "error" && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+          {toast.type === "delete" && <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />}
+          {toast.type === "camera" && <Camera className="w-4 h-4 text-[#2DD4BF] shrink-0" />}
+          {toast.type === "settings" && <Settings className="w-4 h-4 text-[#2DD4BF] shrink-0" />}
+          {toast.type === "info" && <Info className="w-4 h-4 text-[#38BDF8] shrink-0" />}
+          <span className="truncate">{toast.message}</span>
         </div>
       )}
 
-      {/* Main Container - 1440px Centered Canvas */}
-      <div className="max-w-[1440px] mx-auto px-6 pt-5">
+      {/* Main Container - Responsive Mobile-First App Canvas */}
+      <div className="max-w-2xl mx-auto px-3.5 sm:px-6 pt-3 sm:pt-6">
 
         {/* ========================================================================= */}
         {/* VIEW 1: DASHBOARD (Desktop - 1)                                           */}
@@ -1214,28 +1533,43 @@ export default function Home() {
           <div>
             {/* Top Header */}
             <header className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
-                  <Apple className="w-5 h-5 text-white" strokeWidth={2.2} />
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-9 h-8 sm:w-11 sm:h-9 bg-[#0D9488] rounded-[10px] flex items-center justify-center shadow-sm">
+                  <Apple className="w-4 h-4 sm:w-5 sm:h-5 text-white" strokeWidth={2.2} />
                 </div>
-                <h1 className="text-xl font-extrabold tracking-tight text-[#0F172A]">StockWatch</h1>
+                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0F172A]">StockWatch</h1>
               </div>
 
-              {/* Dapur Abdyka (PWA) Badge */}
-              <div
-                onClick={() => setIsSettingsOpen(true)}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors"
-                title="Buka Pengaturan AI & API Key"
-              >
-                <Leaf className="w-3.5 h-3.5 text-[#059669]" />
-                <span>Dapur Abdyka (PWA)</span>
-              </div>
+              {/* User Profile or Auth Trigger */}
+              {currentUser ? (
+                <div
+                  onClick={() => {
+                    setActiveTab("setting");
+                    setCurrentView("setting");
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-[11px] sm:text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors"
+                  title="Lihat Akun & Pengaturan Database"
+                >
+                  <User className="w-3.5 h-3.5 text-[#059669]" />
+                  <span className="truncate max-w-[120px] sm:max-w-[160px]">{currentUser.fullName}</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-[#0D9488] hover:bg-[#0f766e] text-white text-[11px] sm:text-xs font-bold tracking-wide transition-colors shadow-xs active:scale-95"
+                  title="Masuk atau Daftar Akun untuk Simpan ke Database"
+                >
+                  <User className="w-3.5 h-3.5 text-white" />
+                  <span>Masuk / Daftar</span>
+                </button>
+              )}
             </header>
 
             {/* Weekend Fridge Audit Banner */}
-            <div className="w-full bg-[#F0FDFA] border border-[#0D9488] rounded-xl px-5 py-2.5 flex items-center justify-between mb-3.5 shadow-sm">
-              <div className="flex items-center gap-2.5 text-sm font-semibold text-[#0D9488]">
-                <Calendar className="w-4 h-4 text-[#0D9488]" />
+            <div className="w-full bg-[#F0FDFA] border border-[#0D9488] rounded-xl px-4 py-2.5 sm:px-5 flex items-center justify-between mb-3.5 shadow-sm">
+              <div className="flex items-center gap-2 sm:gap-2.5 text-xs sm:text-sm font-semibold text-[#0D9488]">
+                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#0D9488]" />
                 <span>Weekend Fridge Audit (60s)</span>
               </div>
               <button
@@ -1243,61 +1577,64 @@ export default function Home() {
                   setAuditStep(0);
                   setIsAuditOpen(true);
                 }}
-                className="bg-[#0D9488] hover:bg-[#0f766e] text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors shadow-sm"
+                className="bg-[#0D9488] hover:bg-[#0f766e] text-white text-[11px] sm:text-xs font-bold px-3 py-1.5 sm:px-4 rounded-lg transition-colors shadow-sm"
               >
                 Mulai (60s)
               </button>
             </div>
 
             {/* Hero Financial Metric Card */}
-            <div className="w-full bg-[#0D9488] rounded-2xl p-6 text-white mb-4 shadow-sm relative overflow-hidden">
+            <div className="w-full bg-[#0D9488] rounded-2xl p-4 sm:p-6 text-white mb-4 shadow-sm relative overflow-hidden">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold tracking-wider text-[#CCFBF1] uppercase">
+                <span className="text-[11px] sm:text-xs font-bold tracking-wider text-[#CCFBF1] uppercase">
                   HEMAT FINANSIAL BULAN INI
                 </span>
-                <div className="bg-[#0f766e] px-3 py-1 rounded-md text-[11px] font-bold text-white flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
+                <div className="bg-[#0f766e] px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold text-white flex items-center gap-1.5">
+                  <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" strokeWidth={3} />
                   <span>Bebas Sampah</span>
                 </div>
               </div>
-              <div className="text-4xl font-black tracking-tight mb-1.5">
+              <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1.5">
                 Rp {financialSaved.toLocaleString("id-ID")}
               </div>
-              <div className="text-xs font-medium text-[#E6FFFA]">
+              <div className="text-[11px] sm:text-xs font-medium text-[#E6FFFA]">
                 {savedCount} bahan makanan diselamatkan sebelum kedaluwarsa
               </div>
             </div>
 
             {/* Target Audience Dual-Tab Filter */}
-            <div className="w-full bg-[#F1F5F9] rounded-xl p-1 flex items-center gap-1 mb-3.5">
+            <div className="w-full bg-[#F1F5F9] rounded-xl p-1 grid grid-cols-3 gap-1 mb-3.5">
               <button
                 onClick={() => setCategoryFilter("all")}
-                className={`px-5 py-2 rounded-lg text-xs font-bold transition-all ${categoryFilter === "all"
+                className={`py-2 px-1 rounded-lg text-center text-[11px] sm:text-xs font-bold transition-all truncate ${
+                  categoryFilter === "all"
                     ? "bg-white text-[#0D9488] shadow-sm"
                     : "text-[#64748B] hover:text-[#0F172A]"
-                  }`}
+                }`}
               >
                 Semua ({items.length})
               </button>
               <button
                 onClick={() => setCategoryFilter("cook")}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${categoryFilter === "cook"
+                className={`py-2 px-1 rounded-lg text-center text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 transition-all truncate ${
+                  categoryFilter === "cook"
                     ? "bg-white text-[#0D9488] shadow-sm font-bold"
                     : "text-[#64748B] hover:text-[#0F172A]"
-                  }`}
+                }`}
               >
-                <Salad className="w-3.5 h-3.5 text-current" />
-                <span>Bahan Masak ({items.filter((i) => i.category === "cook").length})</span>
+                <Salad className="w-3.5 h-3.5 shrink-0 text-current hidden sm:inline" />
+                <span className="truncate">Bahan Masak ({items.filter((i) => i.category === "cook").length})</span>
               </button>
               <button
                 onClick={() => setCategoryFilter("ready")}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${categoryFilter === "ready"
+                className={`py-2 px-1 rounded-lg text-center text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 transition-all truncate ${
+                  categoryFilter === "ready"
                     ? "bg-white text-[#0D9488] shadow-sm font-bold"
                     : "text-[#64748B] hover:text-[#0F172A]"
-                  }`}
+                }`}
               >
-                <Package className="w-3.5 h-3.5 text-current" />
-                <span>Siap Saji ({items.filter((i) => i.category === "ready").length})</span>
+                <Package className="w-3.5 h-3.5 shrink-0 text-current hidden sm:inline" />
+                <span className="truncate">Siap Saji ({items.filter((i) => i.category === "ready").length})</span>
               </button>
             </div>
 
@@ -1397,17 +1734,17 @@ export default function Home() {
                 filteredItems.map((item) => (
                   <div
                     key={item.id}
-                    className={`w-full bg-white border border-[#E2E8F0] rounded-xl px-4 py-3 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow border-l-4 ${item.borderColor}`}
+                    className={`w-full bg-white border border-[#E2E8F0] rounded-xl px-3 sm:px-4 py-3 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow border-l-4 ${item.borderColor}`}
                   >
-                    <div className="flex items-center gap-3.5">
-                      <div className="w-10 h-10 bg-[#F8FAFC] border border-[#F1F5F9] rounded-lg flex items-center justify-center">
+                    <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1 mr-2">
+                      <div className="w-10 h-10 bg-[#F8FAFC] border border-[#F1F5F9] rounded-lg flex items-center justify-center shrink-0">
                         {renderFoodIcon(item, "w-5 h-5")}
                       </div>
 
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-extrabold text-[#0F172A]">{item.name}</span>
-                          <span className="bg-[#F1F5F9] text-[#64748B] text-[10px] font-semibold px-2 py-0.5 rounded flex items-center gap-1">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span className="text-sm font-extrabold text-[#0F172A] truncate max-w-[150px] sm:max-w-none">{item.name}</span>
+                          <span className="bg-[#F1F5F9] text-[#64748B] text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
                             {item.locationType === "freezer" || item.location.toLowerCase().includes("freezer") ? (
                               <Refrigerator className="w-3 h-3 text-slate-500" />
                             ) : item.category === "ready" || item.location.toLowerCase().includes("saji") ? (
@@ -1426,7 +1763,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                       <button
                         onClick={() => {
                           if (item.actionIcon === "search" || item.actionIcon === "plate") {
@@ -1692,41 +2029,43 @@ export default function Home() {
                   </div>
 
                   {/* Action Buttons Row */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3">
                     <button
                       onClick={handleSimpanItem}
-                      className="flex-1 bg-[#0D9488] hover:bg-[#0f766e] text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
+                      className="flex-1 bg-[#0D9488] hover:bg-[#0f766e] text-white text-xs sm:text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
                     >
                       <CheckCircle2 className="w-4 h-4 text-white" />
                       <span>Konfirmasi &amp; Simpan ke Kulkas</span>
                     </button>
-                    <div className="flex items-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-1">
+                    <div className="flex items-center justify-between sm:justify-start gap-2">
+                      <div className="flex items-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-1">
+                        <button
+                          onClick={() => setScanQty((prev) => Math.max(1, prev - 1))}
+                          className="w-9 h-11 text-[#64748B] hover:text-[#0F172A] font-bold text-lg flex items-center justify-center transition-colors"
+                          title="Kurangi kuantitas"
+                        >
+                          -
+                        </button>
+                        <span className="w-7 text-center font-extrabold text-sm text-[#0F172A]">
+                          {scanQty}
+                        </span>
+                        <button
+                          onClick={() => setScanQty((prev) => prev + 1)}
+                          className="w-9 h-11 text-[#64748B] hover:text-[#0F172A] font-bold text-lg flex items-center justify-center transition-colors"
+                          title="Tambah kuantitas"
+                        >
+                          +
+                        </button>
+                      </div>
+
                       <button
-                        onClick={() => setScanQty((prev) => Math.max(1, prev - 1))}
-                        className="w-9 h-11 text-[#64748B] hover:text-[#0F172A] font-bold text-lg flex items-center justify-center transition-colors"
-                        title="Kurangi kuantitas"
+                        onClick={() => setIsSourceModalOpen(true)}
+                        className="flex-1 sm:flex-initial px-3.5 py-3 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#64748B] hover:text-[#0F172A] flex items-center justify-center transition"
+                        title="Ganti atau Pindai Ulang Foto"
                       >
-                        -
-                      </button>
-                      <span className="w-7 text-center font-extrabold text-sm text-[#0F172A]">
-                        {scanQty}
-                      </span>
-                      <button
-                        onClick={() => setScanQty((prev) => prev + 1)}
-                        className="w-9 h-11 text-[#64748B] hover:text-[#0F172A] font-bold text-lg flex items-center justify-center transition-colors"
-                        title="Tambah kuantitas"
-                      >
-                        +
+                        <RotateCcw className="w-4 h-4" />
                       </button>
                     </div>
-
-                    <button
-                      onClick={() => setIsSourceModalOpen(true)}
-                      className="px-3.5 py-3 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#64748B] hover:text-[#0F172A] flex items-center justify-center transition"
-                      title="Ganti atau Pindai Ulang Foto"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
                   </div>
 
                   {/* Bottom Note */}
@@ -2029,8 +2368,15 @@ export default function Home() {
 
                   {/* Section Title */}
                   <div className="flex items-center justify-between mb-3.5">
-                    <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase">
-                      REKOMENDASI RESEP ZERO-WASTE DARI BAHAN TERPILIH ({selectedItems.length} BAHAN)
+                    <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase flex items-center gap-1.5">
+                      {selectedItems.some(isReadyFood) ? (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                          <span>PANDUAN CEPAT KONSUMSI MAKANAN JADI ({selectedItems.length} ITEM)</span>
+                        </>
+                      ) : (
+                        <span>REKOMENDASI RESEP ZERO-WASTE DARI BAHAN TERPILIH ({selectedItems.length} BAHAN)</span>
+                      )}
                     </h2>
                     {recipePrefilledItem && (
                       <span className="text-[11px] font-semibold text-[#0D9488] bg-[#F0FDFA] px-2.5 py-1 rounded-md border border-[#CCFBF1]">
@@ -2064,11 +2410,13 @@ export default function Home() {
                       {recipes.map((rec) => (
                         <div
                           key={rec.id}
-                          className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow"
+                          className={`w-full bg-white border rounded-2xl p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow ${
+                            rec.isReadyFood ? "border-amber-300 ring-1 ring-amber-100" : "border-[#E2E8F0]"
+                          }`}
                         >
-                          <div className="flex items-start justify-between gap-4 mb-2.5">
+                          <div className="flex items-start justify-between gap-3 mb-2.5">
                             <div>
-                              <h3 className="text-lg font-bold text-[#0F172A]">{rec.title}</h3>
+                              <h3 className="text-base sm:text-lg font-bold text-[#0F172A]">{rec.title}</h3>
                               <div className="flex items-center gap-1.5 text-xs text-[#64748B] mt-1">
                                 <Clock className="w-3.5 h-3.5 text-[#64748B]" />
                                 <span>
@@ -2077,7 +2425,13 @@ export default function Home() {
                               </div>
                             </div>
 
-                            <span className="bg-[#ECFDF5] border border-[#A7F3D0] text-[#059669] text-xs font-bold px-3.5 py-1 rounded-full whitespace-nowrap">
+                            <span
+                              className={`text-[11px] sm:text-xs font-bold px-2.5 sm:px-3.5 py-1 rounded-full whitespace-nowrap border shrink-0 ${
+                                rec.isReadyFood
+                                  ? "bg-amber-50 border-amber-300 text-amber-800"
+                                  : "bg-[#ECFDF5] border-[#A7F3D0] text-[#059669]"
+                              }`}
+                            >
                               {rec.badge}
                             </span>
                           </div>
@@ -2098,10 +2452,31 @@ export default function Home() {
                             ))}
                           </div>
 
-                          {/* Langkah Kilat Dapur Box */}
-                          <div className="bg-[#F8FAFC] rounded-xl p-4 mb-4 border border-[#F1F5F9] max-w-xl">
-                            <div className="font-bold text-xs text-[#0F172A] mb-1.5">Langkah Kilat Dapur:</div>
-                            <div className="text-xs text-[#475569] space-y-1.5 leading-relaxed">
+                          {/* Langkah Kilat Dapur Box / Panduan Konsumsi */}
+                          <div
+                            className={`rounded-xl p-4 mb-4 border max-w-xl ${
+                              rec.isReadyFood
+                                ? "bg-amber-50/70 border-amber-200/80"
+                                : "bg-[#F8FAFC] border-[#F1F5F9]"
+                            }`}
+                          >
+                            <div
+                              className={`font-bold text-xs mb-1.5 flex items-center gap-1.5 ${
+                                rec.isReadyFood ? "text-amber-900 font-extrabold" : "text-[#0F172A]"
+                              }`}
+                            >
+                              {rec.isReadyFood && <Zap className="w-3.5 h-3.5 text-amber-600" />}
+                              <span>
+                                {rec.isReadyFood
+                                  ? "Panduan Cepat Dikonsumsi & Hangatkan:"
+                                  : "Langkah Kilat Dapur:"}
+                              </span>
+                            </div>
+                            <div
+                              className={`text-xs space-y-1.5 leading-relaxed ${
+                                rec.isReadyFood ? "text-amber-950 font-medium" : "text-[#475569]"
+                              }`}
+                            >
                               {rec.steps.map((st, sIdx) => (
                                 <div key={sIdx}>{st}</div>
                               ))}
@@ -2117,15 +2492,23 @@ export default function Home() {
                                 rec.usedItems.map((it) => it.name)
                               )
                             }
-                            className={`inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl shadow-sm transition-all active:scale-95 ${
-                              rec.isPrimary
+                            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 text-white text-xs sm:text-sm font-bold px-5 sm:px-6 py-3 rounded-xl shadow-sm transition-all active:scale-95 text-center ${
+                              rec.isReadyFood
+                                ? "bg-[#D97706] hover:bg-[#B45309]"
+                                : rec.isPrimary
                                 ? "bg-[#0D9488] hover:bg-[#0f766e]"
                                 : "bg-[#0F172A] hover:bg-[#1E293B]"
                             }`}
                           >
-                            <Utensils className="w-4 h-4 text-white" />
+                            {rec.isReadyFood ? (
+                              <CheckCircle2 className="w-4 h-4 text-white" />
+                            ) : (
+                              <Utensils className="w-4 h-4 text-white" />
+                            )}
                             <span>
-                              {rec.isPrimary
+                              {rec.isReadyFood
+                                ? `Santap Sekarang & Selamatkan Rp ${rec.financialSaved.toLocaleString("id-ID")}`
+                                : rec.isPrimary
                                 ? `Masak & Selamatkan Finansial Rp ${rec.financialSaved.toLocaleString("id-ID")}`
                                 : "Masak Menu Ini"}
                             </span>
@@ -2167,54 +2550,104 @@ export default function Home() {
             </p>
 
             {/* Shopping Items List */}
-            <div className="space-y-3 mb-5">
-              {shoppingItems.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => toggleShopItem(item.id)}
-                  className="w-full bg-white border border-[#E2E8F0] rounded-xl px-5 py-4 flex items-center justify-between shadow-xs hover:border-[#CBD5E1] transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    {/* Checkbox */}
-                    <div
-                      className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${item.checked
-                          ? "bg-[#0D9488] text-white"
-                          : "border-2 border-[#CBD5E1] bg-white hover:border-[#0D9488]"
-                        }`}
-                    >
-                      {item.checked && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+            {shoppingItems.length === 0 ? (
+              <div className="w-full bg-white border border-dashed border-[#CBD5E1] rounded-2xl py-12 px-6 flex flex-col items-center justify-center text-center shadow-xs mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-[#F0FDFA] border border-[#CCFBF1] flex items-center justify-center text-[#0D9488] mb-3">
+                  <ShoppingCart className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-extrabold text-[#0F172A] mb-1">
+                  Daftar Belanja Kosong
+                </h4>
+                <p className="text-xs text-[#64748B] max-w-sm mb-4">
+                  Belum ada barang belanjaan terdaftar. Klik tombol di bawah untuk menambah kebutuhan belanja sesuai format inventaris.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 mb-5">
+                {shoppingItems.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => toggleShopItem(item.id)}
+                    className="w-full bg-white border border-[#E2E8F0] rounded-xl px-3 sm:px-5 py-3 sm:py-4 flex items-center justify-between shadow-xs hover:border-[#CBD5E1] transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1 mr-2">
+                      {/* Checkbox */}
+                      <div
+                        className={`w-5 h-5 rounded flex items-center justify-center shrink-0 transition-colors ${item.checked
+                            ? "bg-[#0D9488] text-white"
+                            : "border-2 border-[#CBD5E1] bg-white hover:border-[#0D9488]"
+                          }`}
+                      >
+                        {item.checked && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                      </div>
+
+                      {/* Text Details */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span
+                            className={`text-sm truncate max-w-[150px] sm:max-w-none ${item.checked
+                                ? "text-[#94A3B8] font-semibold line-through"
+                                : "text-[#0F172A] font-bold"
+                              }`}
+                          >
+                            {item.name}
+                          </span>
+                          {item.category && (
+                            <span
+                              className={`text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-md shrink-0 ${
+                                item.category === "ready"
+                                  ? "bg-purple-50 text-purple-700 border border-purple-200"
+                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              }`}
+                            >
+                              {item.category === "ready" ? "Siap Saji" : "Bahan Masak"}
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className={`text-xs mt-0.5 truncate ${item.checked ? "text-[#059669] font-medium" : item.subtitleColor
+                            }`}
+                        >
+                          {item.checked
+                            ? "Sudah dibeli ✓ (Klik tombol di bawah untuk masukkan ke kulkas)"
+                            : item.subtitle}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Text Details */}
-                    <div>
-                      <div
-                        className={`text-sm ${item.checked
-                            ? "text-[#94A3B8] font-semibold"
-                            : "text-[#0F172A] font-bold"
-                          }`}
+                    {/* Price Tag & Actions */}
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      {!item.checked && item.priceDisplay && (
+                        <div className="text-xs sm:text-sm font-bold text-[#64748B] whitespace-nowrap">
+                          {item.priceDisplay}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteShoppingItem(item.id, e)}
+                        className="p-1.5 rounded-lg text-[#94A3B8] hover:text-[#E11D48] hover:bg-[#FFF1F2] transition-colors"
+                        title="Hapus dari daftar belanja"
                       >
-                        {item.name}
-                      </div>
-                      <div
-                        className={`text-xs mt-0.5 ${item.checked ? "text-[#059669] font-medium" : item.subtitleColor
-                          }`}
-                      >
-                        {item.checked
-                          ? "Dibeli • Otomatis masuk stok kulkas!"
-                          : item.subtitle}
-                      </div>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
+                ))}
+              </div>
+            )}
 
-                  {/* Price Tag */}
-                  {!item.checked && item.priceDisplay && (
-                    <div className="text-sm font-bold text-[#64748B]">
-                      {item.priceDisplay}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            {/* Transfer to Fridge Button when items are checked */}
+            {shoppingItems.filter((i) => i.checked).length > 0 && (
+              <button
+                onClick={handleMoveCheckedToInventory}
+                className="w-full py-3.5 px-4 rounded-xl bg-[#0D9488] hover:bg-[#0f766e] text-white font-bold text-sm flex items-center justify-center gap-2 mb-4 shadow-md transition-all active:scale-[0.99]"
+              >
+                <Refrigerator className="w-4 h-4 text-white" />
+                <span>
+                  Selesai Belanja &amp; Masukkan ({shoppingItems.filter((i) => i.checked).length}) Barang ke Kulkas
+                </span>
+              </button>
+            )}
 
             {/* Add New Shopping Item Button */}
             <button
@@ -2265,6 +2698,83 @@ export default function Home() {
                 <span>Notifikasi Cerdas</span>
               </div>
             </header>
+
+            {/* Section 0: Akun Pengguna & Status Sinkronisasi Database */}
+            <div className="mb-6">
+              <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase mb-3 flex items-center justify-between">
+                <span>AKUN &amp; PENYIMPANAN DATABASE</span>
+                <span className="text-[10px] font-bold text-[#0D9488] bg-[#F0FDFA] px-2.5 py-0.5 rounded-full border border-[#CCFBF1]">
+                  {currentUser ? "Akun Terhubung" : "Mode Tamu (Lokal)"}
+                </span>
+              </h2>
+
+              <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm">
+                {currentUser ? (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-12 h-12 rounded-2xl bg-[#ECFDF5] border border-[#A7F3D0] flex items-center justify-center text-[#059669] shrink-0 font-black text-base shadow-xs">
+                          {currentUser.fullName.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-extrabold text-[#0F172A] truncate">
+                            {currentUser.fullName}
+                          </div>
+                          <div className="text-xs text-[#64748B] truncate">
+                            {currentUser.email}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        className="px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[#E11D48] text-xs font-bold flex items-center gap-1.5 transition shrink-0 shadow-xs"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Keluar</span>
+                      </button>
+                    </div>
+
+                    <div className="bg-[#F8FAFC] rounded-xl p-3 border border-[#E2E8F0] flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <Database className="w-4 h-4 text-[#0D9488]" />
+                        <span className="font-semibold text-[#0F172A]">Sinkronisasi Cloud &amp; Lokal</span>
+                      </div>
+                      <span className="font-bold text-[#059669] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Aktif &amp; Otomatis</span>
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-start gap-3.5 mb-4">
+                      <div className="w-11 h-11 rounded-2xl bg-[#F0FDFA] border border-[#99F6E4] flex items-center justify-center text-[#0D9488] shrink-0">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-[#0F172A]">
+                          Masuk untuk Cadangkan Inventori Anda
+                        </div>
+                        <p className="text-xs text-[#64748B] mt-0.5 leading-relaxed">
+                          Daftar akun gratis agar data kulkas, resep, dan belanja dapat tersimpan aman di database serta dapat diakses dari HP &amp; laptop mana saja.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthModalOpen(true)}
+                      className="w-full py-2.5 px-4 bg-[#0D9488] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-sm"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Masuk atau Buat Akun Baru</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Section 1: Preferensi Pengingat (Anti-Spam) */}
             <div className="mb-6">
@@ -2398,8 +2908,8 @@ export default function Home() {
       </div>
 
       {/* Floating / Sticky Bottom Navigation Bar matching the Figma Design exactly */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#E2E8F0] shadow-lg z-40">
-        <div className="max-w-[720px] mx-auto h-20 flex items-center justify-around px-6 relative">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E2E8F0] shadow-lg z-40 pb-[env(safe-area-inset-bottom,0px)]">
+        <div className="max-w-2xl mx-auto h-16 sm:h-20 flex items-center justify-around px-3 sm:px-6 relative">
 
           {/* Stok Tab */}
           <button
@@ -2407,7 +2917,7 @@ export default function Home() {
               setActiveTab("stok");
               setCurrentView("dashboard");
             }}
-            className="flex flex-col items-center gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors"
+            className="flex flex-col items-center gap-1 sm:gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors py-1 px-3 touch-manipulation"
           >
             <ClipboardList
               className={`w-5 h-5 transition-colors ${currentView === "dashboard" && activeTab === "stok"
@@ -2416,7 +2926,7 @@ export default function Home() {
                 }`}
             />
             <span
-              className={`text-xs font-bold ${currentView === "dashboard" && activeTab === "stok"
+              className={`text-[11px] sm:text-xs font-bold ${currentView === "dashboard" && activeTab === "stok"
                   ? "text-[#0D9488]"
                   : "text-[#64748B]"
                 }`}
@@ -2431,7 +2941,7 @@ export default function Home() {
               setActiveTab("olah");
               setCurrentView("olah");
             }}
-            className="flex flex-col items-center gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors"
+            className="flex flex-col items-center gap-1 sm:gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors py-1 px-3 touch-manipulation"
           >
             <ChefHat
               className={`w-5 h-5 transition-colors ${currentView === "olah" || activeTab === "olah"
@@ -2440,7 +2950,7 @@ export default function Home() {
                 }`}
             />
             <span
-              className={`text-xs font-semibold ${currentView === "olah" || activeTab === "olah"
+              className={`text-[11px] sm:text-xs font-semibold ${currentView === "olah" || activeTab === "olah"
                   ? "text-[#0D9488] font-bold"
                   : "text-[#64748B]"
                 }`}
@@ -2450,7 +2960,7 @@ export default function Home() {
           </button>
 
           {/* Floating Plus Button (Quick Add) -> Switches to Quick Add Screen 2 */}
-          <div className="relative -top-4">
+          <div className="relative -top-3 sm:-top-4">
             <button
               onClick={() => {
                 if (currentView === "quickadd") {
@@ -2461,10 +2971,10 @@ export default function Home() {
                   setActiveTab("add");
                 }
               }}
-              className="w-14 h-14 bg-[#0D9488] hover:bg-[#0f766e] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#0D9488]/40 border-4 border-white transition-transform active:scale-95"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-[#0D9488] hover:bg-[#0f766e] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#0D9488]/40 border-4 border-white transition-transform active:scale-95 touch-manipulation"
               title="Quick Add Cepat (<5 Detik)"
             >
-              <Plus className="w-6 h-6 text-white stroke-[2.5]" />
+              <Plus className="w-5 h-5 sm:w-6 sm:h-6 text-white stroke-[2.5]" />
             </button>
           </div>
 
@@ -2474,7 +2984,7 @@ export default function Home() {
               setActiveTab("belanja");
               setCurrentView("belanja");
             }}
-            className="flex flex-col items-center gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors"
+            className="flex flex-col items-center gap-1 sm:gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors py-1 px-3 touch-manipulation"
           >
             <ShoppingCart
               className={`w-5 h-5 transition-colors ${currentView === "belanja" || activeTab === "belanja"
@@ -2483,7 +2993,7 @@ export default function Home() {
                 }`}
             />
             <span
-              className={`text-xs font-semibold ${currentView === "belanja" || activeTab === "belanja"
+              className={`text-[11px] sm:text-xs font-semibold ${currentView === "belanja" || activeTab === "belanja"
                   ? "text-[#0D9488] font-bold"
                   : "text-[#64748B]"
                 }`}
@@ -2498,7 +3008,7 @@ export default function Home() {
               setActiveTab("setting");
               setCurrentView("setting");
             }}
-            className="flex flex-col items-center gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors"
+            className="flex flex-col items-center gap-1 sm:gap-1.5 text-[#64748B] hover:text-[#0D9488] transition-colors py-1 px-3 touch-manipulation"
           >
             <Settings
               className={`w-5 h-5 transition-colors ${currentView === "setting" || activeTab === "setting"
@@ -2507,7 +3017,7 @@ export default function Home() {
                 }`}
             />
             <span
-              className={`text-xs font-semibold ${currentView === "setting" || activeTab === "setting"
+              className={`text-[11px] sm:text-xs font-semibold ${currentView === "setting" || activeTab === "setting"
                   ? "text-[#0D9488] font-bold"
                   : "text-[#64748B]"
                 }`}
@@ -2517,6 +3027,14 @@ export default function Home() {
           </button>
         </div>
       </nav>
+
+      {/* User Login & Signup Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        showToast={showToast}
+      />
 
       {/* Settings Modal */}
       <SettingsModal
@@ -2574,54 +3092,207 @@ export default function Home() {
         }}
       />
 
-      {/* Modal Tambah Barang Belanjaan Manual */}
+      {/* Modal Tambah Barang Belanjaan Manual & Custom Sesuai Format Inventaris */}
       {isAddShoppingModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150">
-            <h3 className="text-base font-extrabold text-[#0F172A] mb-4 flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4 text-[#0D9488]" />
-              <span>Tambah Barang Belanjaan Manual</span>
-            </h3>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-100">
+              <h3 className="text-base font-extrabold text-[#0F172A] flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4 text-[#0D9488]" />
+                <span>Tambah Barang Belanjaan Custom</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddShoppingModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
             <form onSubmit={handleAddShoppingItem} className="space-y-4">
+              {/* Nama Bahan */}
               <div>
                 <label className="text-xs font-bold text-[#475569] block mb-1">
-                  Nama Barang Belanja
+                  Nama Bahan / Makanan <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={newShoppingName}
                   onChange={(e) => setNewShoppingName(e.target.value)}
-                  placeholder="Misal: Minyak Goreng 2L, Tempe..."
+                  placeholder="Misal: Daging Ayam, Bayam Segar, Tahu Bandung..."
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488]"
                   autoFocus
+                  required
                 />
               </div>
+
+              {/* Jumlah dan Satuan */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Jumlah / Kuantitas
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newShoppingQty}
+                    onChange={(e) => setNewShoppingQty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Satuan Fisik
+                  </label>
+                  <select
+                    value={newShoppingUnit}
+                    onChange={(e) => setNewShoppingUnit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488] bg-white"
+                  >
+                    <option value="porsi">Porsi</option>
+                    <option value="ikat">Ikat</option>
+                    <option value="buah">Buah</option>
+                    <option value="butir">Butir</option>
+                    <option value="ekor">Ekor</option>
+                    <option value="papan">Papan</option>
+                    <option value="bungkus">Bungkus</option>
+                    <option value="gram">Gram</option>
+                    <option value="kg">Kg</option>
+                    <option value="liter">Liter</option>
+                    <option value="ml">Ml</option>
+                    <option value="kaleng">Kaleng</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Kategori Inventaris */}
               <div>
                 <label className="text-xs font-bold text-[#475569] block mb-1">
-                  Estimasi Harga (Opsional)
+                  Kategori Inventaris
                 </label>
-                <input
-                  type="number"
-                  value={newShoppingPrice}
-                  onChange={(e) => setNewShoppingPrice(e.target.value)}
-                  placeholder="Misal: 15000"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488]"
-                />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewShoppingCategory("cook")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      newShoppingCategory === "cook"
+                        ? "bg-[#0D9488] text-white border-[#0D9488] shadow-xs"
+                        : "bg-white text-[#475569] border-[#CBD5E1] hover:bg-zinc-50"
+                    }`}
+                  >
+                    <Salad className="w-3.5 h-3.5" />
+                    <span>Bahan Masak</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewShoppingCategory("ready")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      newShoppingCategory === "ready"
+                        ? "bg-[#7C3AED] text-white border-[#7C3AED] shadow-xs"
+                        : "bg-white text-[#475569] border-[#CBD5E1] hover:bg-zinc-50"
+                    }`}
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>Siap Saji / Matang</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center justify-end gap-2 pt-2">
+
+              {/* Zona Suhu & Posisi Rak */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Zona Penyimpanan
+                  </label>
+                  <select
+                    value={newShoppingLocationType}
+                    onChange={(e) => {
+                      const val = e.target.value as "fridge" | "freezer";
+                      setNewShoppingLocationType(val);
+                      setNewShoppingLocation(val === "freezer" ? "Freezer Utama" : "Kulkas Utama");
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488] bg-white"
+                  >
+                    <option value="fridge">Kulkas Chiller (4°C)</option>
+                    <option value="freezer">Freezer Beku (-18°C)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Posisi Rak Kulkas
+                  </label>
+                  <select
+                    value={newShoppingLocation}
+                    onChange={(e) => setNewShoppingLocation(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488] bg-white"
+                  >
+                    {newShoppingLocationType === "fridge" ? (
+                      <>
+                        <option value="Kulkas Utama">Kulkas Utama</option>
+                        <option value="Laci Sayur (Crisper)">Laci Sayur (Crisper)</option>
+                        <option value="Rak Telur">Rak Telur</option>
+                        <option value="Pintu Kulkas">Pintu Kulkas</option>
+                        <option value="Chiller Daging">Chiller Daging</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Freezer Utama">Freezer Utama</option>
+                        <option value="Laci Daging Freezer">Laci Daging Freezer</option>
+                        <option value="Kotak Es Batu">Kotak Es Batu</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Daya Simpan & Estimasi Harga */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Daya Simpan Simpan
+                  </label>
+                  <select
+                    value={newShoppingExpiryDays}
+                    onChange={(e) => setNewShoppingExpiryDays(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488] bg-white"
+                  >
+                    <option value={2}>2 Hari (Cepat Basi / H-1)</option>
+                    <option value={3}>3 Hari (H-3)</option>
+                    <option value={7}>7 Hari (1 Minggu)</option>
+                    <option value={14}>14 Hari (2 Minggu)</option>
+                    <option value={30}>30 Hari (1 Bulan)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-[#475569] block mb-1">
+                    Estimasi Harga (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    value={newShoppingPrice}
+                    onChange={(e) => setNewShoppingPrice(e.target.value)}
+                    placeholder="Misal: 15000"
+                    className="w-full px-3.5 py-2 rounded-xl border border-[#CBD5E1] text-sm focus:outline-none focus:border-[#0D9488]"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
                 <button
                   type="button"
                   onClick={() => setIsAddShoppingModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-[#64748B] hover:bg-[#F1F5F9] transition"
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[#64748B] hover:bg-[#F1F5F9] transition"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={!newShoppingName.trim()}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#0D9488] hover:bg-[#0f766e] text-white disabled:opacity-50 transition"
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0D9488] hover:bg-[#0f766e] text-white disabled:opacity-50 transition shadow-sm"
                 >
-                  + Tambah ke Daftar
+                  + Tambah ke Daftar Belanja
                 </button>
               </div>
             </form>
@@ -2634,9 +3305,9 @@ export default function Home() {
       {/* ========================================================================= */}
       {isAuditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="bg-[#F8FAFC] rounded-2xl w-full max-w-md shadow-2xl border border-[#CBD5E1] overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="bg-[#F8FAFC] rounded-2xl w-full max-w-md shadow-2xl border border-[#CBD5E1] overflow-hidden animate-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
             {/* Modal Top Header */}
-            <div className="bg-white border-b border-[#E2E8F0] px-5 py-4 flex items-center justify-between">
+            <div className="bg-white border-b border-[#E2E8F0] px-4 sm:px-5 py-3.5 sm:py-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 bg-[#0D9488] rounded-lg flex items-center justify-center shadow-sm">
                   <Apple className="w-4 h-4 text-white" strokeWidth={2.2} />
@@ -2647,7 +3318,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="px-3 py-1 bg-[#ECFDF5] border border-[#A7F3D0] rounded-full text-[11px] font-bold text-[#059669] flex items-center gap-1.5">
+                <span className="px-2.5 sm:px-3 py-1 bg-[#ECFDF5] border border-[#A7F3D0] rounded-full text-[10px] sm:text-[11px] font-bold text-[#059669] flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#059669]" />
                   <span>60 Detik</span>
                 </span>
@@ -2664,7 +3335,7 @@ export default function Home() {
             </div>
 
             {/* Audit Body */}
-            <div className="p-5">
+            <div className="p-4 sm:p-5 overflow-y-auto">
               {auditStep < Math.min(items.length, 4) ? (
                 <>
                   {/* Explainer Banner */}
@@ -2818,7 +3489,7 @@ export default function Home() {
       {/* ========================================================================= */}
       {editingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-[#0F172A] flex items-center gap-2">
                 <Pencil className="w-4 h-4 text-[#0D9488]" />
@@ -2955,7 +3626,7 @@ export default function Home() {
       {/* Alert Modal Konfirmasi Hapus Makanan */}
       {itemToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl border border-zinc-200 animate-in zoom-in-95 duration-150">
             <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-[#E11D48] mb-4 mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>

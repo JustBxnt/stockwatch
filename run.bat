@@ -28,8 +28,8 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 rem Verifikasi dependensi proyek
-if not exist "node_modules\" (
-    echo Dependensi belum terpasang. Menjalankan npm install...
+if not exist "node_modules\next\" (
+    echo Dependensi belum terpasang lengkap. Menjalankan npm install...
     call npm install
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Gagal memasang dependensi proyek.

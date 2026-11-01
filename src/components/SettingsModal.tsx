@@ -43,7 +43,7 @@ export default function SettingsModal({
         localStorage.getItem("stockwatch_gemini_key") ||
         defaultKey;
       setApiKey(savedKey);
-      localStorage.setItem("stockwatch_gemma_model", "gemma-4-26b-a4b-it");
+      localStorage.setItem("stockwatch_gemma_model", "gemini-3.5-flash-lite");
     }
   }, [isOpen]);
 
@@ -94,10 +94,10 @@ export default function SettingsModal({
     showToast("Menguji koneksi Dual Vision (Vision 1 & Vision 2)...", "info");
 
     try {
-      // Ping both Vision 1 (26B Multimodal) and Vision 2 (31B Deep Thinking) in parallel
+      // Ping both Vision 1 (3.5 Flash-Lite) and Vision 2 (Flash-Lite Latest) in parallel
       const [res1, res2] = await Promise.all([
-        pingModel("gemma-4-26b-a4b-it"),
-        pingModel("gemma-4-31b-it"),
+        pingModel("gemini-3.5-flash-lite"),
+        pingModel("gemini-flash-lite-latest"),
       ]);
 
       // Update Vision 1 state
@@ -148,7 +148,7 @@ export default function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="flex w-full max-w-md flex-col rounded-2xl bg-white p-5 shadow-2xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+      <div className="flex w-full max-w-md max-h-[90vh] overflow-y-auto flex-col rounded-2xl bg-white p-5 shadow-2xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 pb-3 dark:border-zinc-800">
           <div className="flex items-center gap-2">

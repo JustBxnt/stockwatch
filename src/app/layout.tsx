@@ -1,10 +1,24 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#0D9488",
+};
 
 export const metadata: Metadata = {
   title: "StockWatch OS - Kulkas Pintar & AI Vision",
   description: "Kurangi food waste dengan Smart Scan AI Gemma 4 dan pengingat kadaluwarsa pintar.",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "StockWatch OS",
+  },
 };
 
 export default function RootLayout({

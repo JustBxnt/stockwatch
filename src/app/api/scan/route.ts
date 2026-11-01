@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const requestedModel =
       (formData.get("model") as string)?.trim() ||
       process.env.GEMINI_MODEL ||
-      "gemini-3.1-flash-lite";
+      "gemini-3.5-flash-lite";
 
     const defaultApiKey =
       process.env.GEMINI_API_KEY ||
@@ -55,13 +55,18 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
-    // Selected model: defaults to Gemini 3.1 Flash Lite
-    const selectedModel =
-      requestedModel && (requestedModel.includes("gemini") || requestedModel.includes("gemma"))
-        ? requestedModel
-        : "gemini-3.1-flash-lite";
+    // Candidate models with automatic fallback if a model experiences 503 high demand or 404/429
+    const candidateModels = Array.from(
+      new Set([
+        requestedModel,
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemma-4-31b-it",
+      ])
+    ).filter(Boolean) as string[];
 
-    const prompt = `Peran: Pakar AI Vision Pangan & Valuasi Ekonomi Kuliner Indonesia (StockWatch OS - Gemini 3.1 Flash Lite Engine).
+    const prompt = `Peran: Pakar AI Vision Pangan & Valuasi Ekonomi Kuliner Indonesia (StockWatch OS - Gemini Vision AI Engine).
 
 Instruksi Analisis Gambar Sangat Amat Detail & Perhitungan Jumlah Fisik:
 1. Identifikasi SEMUA jenis buah, sayuran, daging, telur, bumbu, atau bahan pangan yang tampak di foto.
@@ -76,6 +81,9 @@ Instruksi Analisis Gambar Sangat Amat Detail & Perhitungan Jumlah Fisik:
 4. Daya Tahan & Zona Kulkas:
    - Tentukan zona kulkas paling tepat: crisper sayur ('suhu_ruang'), kulkas chiller ('kulkas_chiller'), atau freezer ('freezer_beku').
    - Berikan tips penyimpanan agar tidak cepat busuk / mencegah food waste.
+5. Klasifikasi Kategori & Tipe Makanan Sangat Tegas:
+   - Jika makanan tampak sebagai hidangan matang, makanan olahan, siap santap, lauk matang, burger, pizza, sandwich, roti, ayam goreng, nasi olahan: WAJIB beri nilai "tipe_makanan": "olahan_matang" (atau "siap_saji") dan "kategori": "Kuliner Tradisional & Olahan Matang".
+   - Jika bahan mentah utuh (sayur mentah, buah mentah, daging mentah potong, telur): beri nilai "tipe_makanan": "mentah_segar".
 
 Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown di luar JSON:
 {
@@ -136,29 +144,52 @@ Jawab HANYA dalam format JSON valid berikut tanpa teks pendahuluan atau markdown
       },
     };
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 150000); // 150s
+    let resultData: any = null;
+    let lastError: Error | null = null;
 
-    const googleApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${activeApiKey}`;
+    for (const model of candidateModels) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s per model attempt
 
-    const response = await fetch(googleApiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+        const googleApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${activeApiKey}`;
 
-    clearTimeout(timeoutId);
+        const response = await fetch(googleApiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
 
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => ({}));
-      throw new Error(
-        `Google Gemini API error (${response.status}): ${errJson.error?.message || response.statusText
-        }`
-      );
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errJson = await response.json().catch(() => ({}));
+          const errMsg = errJson.error?.message || response.statusText;
+          // If model is busy (503), deprecated/not found (404), rate-limited (429), or internal error (500), try fallback model
+          if ([503, 404, 429, 500].includes(response.status)) {
+            console.warn(`[StockWatch AI] Model ${model} gagal (${response.status}: ${errMsg}). Mencoba fallback model berikutnya...`);
+            lastError = new Error(`Google Gemini API error (${response.status}): ${errMsg}`);
+            continue;
+          }
+          throw new Error(`Google Gemini API error (${response.status}): ${errMsg}`);
+        }
+
+        const data = await response.json();
+        if (data.candidates && data.candidates.length > 0) {
+          resultData = data;
+          break; // Model responded successfully!
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[StockWatch AI] Error dengan model ${model}:`, err.message);
+      }
     }
 
-    const resultData = await response.json();
+    if (!resultData || !resultData.candidates || resultData.candidates.length === 0) {
+      throw lastError || new Error("Tidak ada respon yang dikembalikan oleh model Google Gemini.");
+    }
+
     const candidates = resultData.candidates;
 
     if (!candidates || candidates.length === 0) {

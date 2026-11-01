@@ -70,7 +70,7 @@ export default function ManualAddModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="flex w-full max-w-md flex-col rounded-2xl bg-white p-5 shadow-2xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+      <div className="flex w-full max-w-md max-h-[90vh] overflow-y-auto flex-col rounded-2xl bg-white p-5 shadow-2xl dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 pb-3 dark:border-zinc-800">
           <div className="flex items-center gap-2">
