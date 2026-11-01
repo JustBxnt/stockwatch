@@ -280,6 +280,29 @@ export function isReadyFood(item?: { name?: string; category?: string; location?
   return readyKeywords.some((kw) => n.includes(kw));
 }
 
+export function isDemoFoodItem(id: number, name?: string): boolean {
+  const n = (name || "").toLowerCase().trim();
+  return (
+    id <= 10 ||
+    n === "kangkung segar" ||
+    n === "ayam geprek sisa semalam" ||
+    n === "susu uht fresh" ||
+    n === "telur ayam kampung" ||
+    n === "daging sapi slice"
+  );
+}
+
+export function isDemoShopItem(id: number, name?: string): boolean {
+  const n = (name || "").toLowerCase().trim();
+  return (
+    id <= 10 ||
+    n.includes("telur ayam kampung") ||
+    n.includes("tahu sutra") ||
+    n.includes("bawang merah") ||
+    n.includes("susu uht full cream")
+  );
+}
+
 function isSweetItem(name: string): boolean {
   const n = (name || "").toLowerCase();
   return (
@@ -933,10 +956,24 @@ export default function Home() {
           setCurrentUser(user);
           const userData = await loadUserData(user.id);
           if (userData !== null) {
-            setItems(userData.items || []);
-            setShoppingItems(userData.shoppingItems || []);
-            setFinancialSaved(userData.financialSaved || 0);
-            setSavedCount(userData.savedCount || 0);
+            const cleanItems = (userData.items || []).filter((it) => !isDemoFoodItem(it.id, it.name));
+            const cleanShopping = (userData.shoppingItems || []).filter((it) => !isDemoShopItem(it.id, it.name));
+            const cleanFinancial = cleanItems.length > 0 ? (userData.financialSaved || 0) : 0;
+            const cleanSavedCount = cleanItems.length > 0 ? (userData.savedCount || 0) : 0;
+
+            setItems(cleanItems);
+            setShoppingItems(cleanShopping);
+            setFinancialSaved(cleanFinancial);
+            setSavedCount(cleanSavedCount);
+
+            if (cleanItems.length !== (userData.items || []).length || cleanShopping.length !== (userData.shoppingItems || []).length) {
+              saveUserData(user.id, {
+                items: cleanItems,
+                shoppingItems: cleanShopping,
+                financialSaved: cleanFinancial,
+                savedCount: cleanSavedCount,
+              });
+            }
           } else {
             setItems([]);
             setShoppingItems([]);
@@ -949,39 +986,42 @@ export default function Home() {
 
         // Mode Tamu (Guest Mode) ketika belum ada user login
         const storedItems = localStorage.getItem("stockwatch_inventory_items");
+        let initialGuestItems: InventoryItem[] = [];
         if (storedItems !== null) {
           const parsed = JSON.parse(storedItems);
           if (Array.isArray(parsed)) {
-            const healed = parsed.map((it: InventoryItem) => {
-              if (it.category !== "ready" && isReadyFood(it)) {
-                return { ...it, category: "ready" as const };
-              }
-              return it;
-            });
-            setItems(healed);
+            initialGuestItems = parsed
+              .filter((it: InventoryItem) => !isDemoFoodItem(it.id, it.name))
+              .map((it: InventoryItem) => {
+                if (it.category !== "ready" && isReadyFood(it)) {
+                  return { ...it, category: "ready" as const };
+                }
+                return it;
+              });
           }
-        } else {
-          // Akun atau tamu baru dimulai dalam kondisi bersih (0 item, Rp 0)
-          setItems([]);
-          setShoppingItems([]);
-          setFinancialSaved(0);
-          setSavedCount(0);
         }
+        setItems(initialGuestItems);
 
-        const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
-        if (storedFinancial !== null) {
-          setFinancialSaved(Number(storedFinancial) || 0);
-        }
-        const storedCount = localStorage.getItem("stockwatch_saved_count");
-        if (storedCount !== null) {
-          setSavedCount(Number(storedCount) || 0);
-        }
+        let initialShopItems: ShoppingItem[] = [];
         const storedShopping = localStorage.getItem("stockwatch_shopping_items");
         if (storedShopping !== null) {
           const parsed = JSON.parse(storedShopping);
           if (Array.isArray(parsed)) {
-            setShoppingItems(parsed);
+            initialShopItems = parsed.filter((it: ShoppingItem) => !isDemoShopItem(it.id, it.name));
           }
+        }
+        setShoppingItems(initialShopItems);
+
+        if (initialGuestItems.length === 0) {
+          setFinancialSaved(0);
+          setSavedCount(0);
+          localStorage.setItem("stockwatch_financial_saved", "0");
+          localStorage.setItem("stockwatch_saved_count", "0");
+        } else {
+          const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
+          setFinancialSaved(storedFinancial ? Number(storedFinancial) || 0 : 0);
+          const storedCount = localStorage.getItem("stockwatch_saved_count");
+          setSavedCount(storedCount ? Number(storedCount) || 0 : 0);
         }
       } catch (e) {
         console.error("Gagal membaca database / localStorage:", e);
@@ -1016,10 +1056,15 @@ export default function Home() {
         // Muat data spesifik akun dari database Supabase
         const data = await loadUserData(uProfile.id);
         if (data !== null) {
-          setItems(data.items || []);
-          setShoppingItems(data.shoppingItems || []);
-          setFinancialSaved(data.financialSaved || 0);
-          setSavedCount(data.savedCount || 0);
+          const cleanItems = (data.items || []).filter((it) => !isDemoFoodItem(it.id, it.name));
+          const cleanShopping = (data.shoppingItems || []).filter((it) => !isDemoShopItem(it.id, it.name));
+          const cleanFinancial = cleanItems.length > 0 ? (data.financialSaved || 0) : 0;
+          const cleanSavedCount = cleanItems.length > 0 ? (data.savedCount || 0) : 0;
+
+          setItems(cleanItems);
+          setShoppingItems(cleanShopping);
+          setFinancialSaved(cleanFinancial);
+          setSavedCount(cleanSavedCount);
         } else {
           setItems([]);
           setShoppingItems([]);
@@ -1086,10 +1131,24 @@ export default function Home() {
     try {
       const data = await loadUserData(user.id);
       if (data !== null) {
-        setItems(data.items || []);
-        setShoppingItems(data.shoppingItems || []);
-        setFinancialSaved(data.financialSaved || 0);
-        setSavedCount(data.savedCount || 0);
+        const cleanItems = (data.items || []).filter((it) => !isDemoFoodItem(it.id, it.name));
+        const cleanShopping = (data.shoppingItems || []).filter((it) => !isDemoShopItem(it.id, it.name));
+        const cleanFinancial = cleanItems.length > 0 ? (data.financialSaved || 0) : 0;
+        const cleanSavedCount = cleanItems.length > 0 ? (data.savedCount || 0) : 0;
+
+        setItems(cleanItems);
+        setShoppingItems(cleanShopping);
+        setFinancialSaved(cleanFinancial);
+        setSavedCount(cleanSavedCount);
+
+        if (cleanItems.length !== (data.items || []).length || cleanShopping.length !== (data.shoppingItems || []).length) {
+          saveUserData(user.id, {
+            items: cleanItems,
+            shoppingItems: cleanShopping,
+            financialSaved: cleanFinancial,
+            savedCount: cleanSavedCount,
+          });
+        }
         showToast(`Dapur "${user.fullName}" berhasil disinkronkan!`, "success");
       } else {
         // Pengguna baru pertama kali mendaftar
@@ -1822,13 +1881,6 @@ export default function Home() {
                       <Plus className="w-4 h-4" />
                       <span>Tambah Bahan (Quick Add)</span>
                     </button>
-                    <button
-                      onClick={handleResetToDefault}
-                      className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] rounded-xl text-xs font-bold transition"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Reset Demo</span>
-                    </button>
                   </div>
                 </div>
               ) : (
@@ -2310,7 +2362,7 @@ export default function Home() {
                     Inventori Kulkas Masih Kosong
                   </h3>
                   <p className="text-xs text-[#64748B] max-w-md mb-5 leading-relaxed">
-                    Semua bahan telah selesai dimasak atau belum ada bahan terdaftar. Tambahkan bahan baru melalui fitur Quick Add atau gunakan tombol Reset Demo untuk mencoba rekomendasi resep.
+                    Semua bahan telah selesai dimasak atau belum ada bahan terdaftar. Tambahkan bahan baru melalui fitur Quick Add untuk mencoba rekomendasi resep.
                   </p>
                   <div className="flex items-center gap-2.5">
                     <button
@@ -2322,13 +2374,6 @@ export default function Home() {
                     >
                       <Plus className="w-4 h-4" />
                       <span>Tambah Bahan (Quick Add)</span>
-                    </button>
-                    <button
-                      onClick={handleResetToDefault}
-                      className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] rounded-xl text-xs font-bold transition"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Reset Demo</span>
                     </button>
                   </div>
                 </div>

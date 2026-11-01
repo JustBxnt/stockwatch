@@ -271,7 +271,32 @@ export async function signOutUser(): Promise<void> {
 // DATABASE SYNC & PERSISTENCE
 // =========================================================================
 
+function isDemoFoodItem(id: number, name: string): boolean {
+  const n = (name || "").toLowerCase().trim();
+  return (
+    id <= 10 ||
+    n === "kangkung segar" ||
+    n === "ayam geprek sisa semalam" ||
+    n === "susu uht fresh" ||
+    n === "telur ayam kampung" ||
+    n === "daging sapi slice"
+  );
+}
+
+function isDemoShopItem(id: number, name: string): boolean {
+  const n = (name || "").toLowerCase().trim();
+  return (
+    id <= 10 ||
+    n.includes("telur ayam kampung") ||
+    n.includes("tahu sutra") ||
+    n.includes("bawang merah") ||
+    n.includes("susu uht full cream")
+  );
+}
+
 export async function loadUserData(userId: string): Promise<UserAppData | null> {
+  const isDemoAccount = userId === "usr_demo_vip";
+
   if (isSupabaseConfigured()) {
     try {
       const [invRes, shopRes, metricRes] = await Promise.all([
@@ -282,7 +307,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
 
       // Query database Supabase berhasil (error null)
       if (!invRes.error) {
-        const items: InventoryItemDB[] = (invRes.data || []).map((row: any) => ({
+        let items: InventoryItemDB[] = (invRes.data || []).map((row: any) => ({
           id: Number(row.id),
           name: row.name,
           qty: row.qty,
@@ -296,7 +321,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
           price: Number(row.price) || 0,
         }));
 
-        const shoppingItems: ShoppingItemDB[] = (shopRes.data || []).map((row: any) => ({
+        let shoppingItems: ShoppingItemDB[] = (shopRes.data || []).map((row: any) => ({
           id: Number(row.id),
           name: row.name,
           subtitle: row.subtitle || "",
@@ -310,8 +335,30 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
           expiryDays: row.expiry_days,
         }));
 
-        const financialSaved = Number(metricRes.data?.financial_saved) || 0;
-        const savedCount = Number(metricRes.data?.saved_count) || 0;
+        let financialSaved = Number(metricRes.data?.financial_saved) || 0;
+        let savedCount = Number(metricRes.data?.saved_count) || 0;
+
+        // Jika bukan akun demo resmi, bersihkan semua residu demo bawaan agar akun pengguna selalu bersih murni
+        if (!isDemoAccount) {
+          const hadDemoItems = items.some((i) => isDemoFoodItem(i.id, i.name));
+          const hadDemoShopping = shoppingItems.some((s) => isDemoShopItem(s.id, s.name));
+          
+          if (hadDemoItems) {
+            items = items.filter((i) => !isDemoFoodItem(i.id, i.name));
+          }
+          if (hadDemoShopping) {
+            shoppingItems = shoppingItems.filter((s) => !isDemoShopItem(s.id, s.name));
+          }
+          if (items.length === 0) {
+            financialSaved = 0;
+            savedCount = 0;
+          }
+
+          // Jika ada data demo yang dibersihkan, sinkronkan pembersihan ini ke database Supabase
+          if (hadDemoItems || hadDemoShopping) {
+            saveUserData(userId, { items, shoppingItems, financialSaved, savedCount });
+          }
+        }
 
         const result: UserAppData = { items, shoppingItems, financialSaved, savedCount };
 
@@ -332,12 +379,21 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
     try {
       const saved = localStorage.getItem(`${LOCAL_STORAGE_DATA_PREFIX}${userId}`);
       if (saved !== null) {
-        return JSON.parse(saved);
+        const parsed: UserAppData = JSON.parse(saved);
+        if (!isDemoAccount) {
+          parsed.items = (parsed.items || []).filter((i) => !isDemoFoodItem(i.id, i.name));
+          parsed.shoppingItems = (parsed.shoppingItems || []).filter((s) => !isDemoShopItem(s.id, s.name));
+          if (parsed.items.length === 0) {
+            parsed.financialSaved = 0;
+            parsed.savedCount = 0;
+          }
+        }
+        return parsed;
       }
     } catch {}
   }
 
-  // Jika akun baru dan belum memiliki record apa pun, kembalikan data bersih (0 inventori, 0 belanjaan, Rp 0)
+  // Akun baru: kembalikan data bersih murni (0 inventori, 0 belanjaan, Rp 0)
   return { items: [], shoppingItems: [], financialSaved: 0, savedCount: 0 };
 }
 
