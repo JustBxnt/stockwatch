@@ -265,7 +265,7 @@ interface DynamicRecipe {
   isReadyFood?: boolean;
 }
 
-export function isReadyFood(item?: { name?: string; category?: string; location?: string } | null): boolean {
+function isReadyFood(item?: { name?: string; category?: string; location?: string } | null): boolean {
   if (!item) return false;
   if (item.category === "ready") return true;
   const loc = (item.location || "").toLowerCase();
@@ -283,12 +283,12 @@ export function isReadyFood(item?: { name?: string; category?: string; location?
   return readyKeywords.some((kw) => n.includes(kw));
 }
 
-export function isDemoFoodItem(id: number, _name?: string): boolean {
+function isDemoFoodItem(id: number, _name?: string): boolean {
   // Hanya filter ID bawaan demo dummy (1 s/d 10). Makanan buatan user memiliki ID timestamp Date.now()
   return id > 0 && id <= 10;
 }
 
-export function isDemoShopItem(id: number, _name?: string): boolean {
+function isDemoShopItem(id: number, _name?: string): boolean {
   // Hanya filter ID bawaan demo dummy (1 s/d 10)
   return id > 0 && id <= 10;
 }
@@ -953,8 +953,8 @@ export default function Home() {
           if (userData !== null) {
             const cleanItems = (userData.items || []).filter((it) => !isDemoFoodItem(it.id, it.name));
             const cleanShopping = (userData.shoppingItems || []).filter((it) => !isDemoShopItem(it.id, it.name));
-            const cleanFinancial = cleanItems.length > 0 ? (userData.financialSaved || 0) : 0;
-            const cleanSavedCount = cleanItems.length > 0 ? (userData.savedCount || 0) : 0;
+            const cleanFinancial = Number(userData.financialSaved) || 0;
+            const cleanSavedCount = Number(userData.savedCount) || 0;
 
             setItems(cleanItems);
             setShoppingItems(cleanShopping);
@@ -1008,17 +1008,10 @@ export default function Home() {
         }
         setShoppingItems(initialShopItems);
 
-        if (initialGuestItems.length === 0) {
-          setFinancialSaved(0);
-          setSavedCount(0);
-          localStorage.setItem("stockwatch_financial_saved", "0");
-          localStorage.setItem("stockwatch_saved_count", "0");
-        } else {
-          const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
-          setFinancialSaved(storedFinancial ? Number(storedFinancial) || 0 : 0);
-          const storedCount = localStorage.getItem("stockwatch_saved_count");
-          setSavedCount(storedCount ? Number(storedCount) || 0 : 0);
-        }
+        const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
+        setFinancialSaved(storedFinancial !== null ? Number(storedFinancial) || 0 : 0);
+        const storedCount = localStorage.getItem("stockwatch_saved_count");
+        setSavedCount(storedCount !== null ? Number(storedCount) || 0 : 0);
         isUserDataLoadedRef.current = true;
       } catch (e) {
         console.error("Gagal membaca database / localStorage:", e);
@@ -1056,8 +1049,8 @@ export default function Home() {
         if (data !== null) {
           const cleanItems = (data.items || []).filter((it) => !isDemoFoodItem(it.id, it.name));
           const cleanShopping = (data.shoppingItems || []).filter((it) => !isDemoShopItem(it.id, it.name));
-          const cleanFinancial = cleanItems.length > 0 ? (data.financialSaved || 0) : 0;
-          const cleanSavedCount = cleanItems.length > 0 ? (data.savedCount || 0) : 0;
+          const cleanFinancial = Number(data.financialSaved) || 0;
+          const cleanSavedCount = Number(data.savedCount) || 0;
 
           setItems(cleanItems);
           setShoppingItems(cleanShopping);
@@ -1140,8 +1133,8 @@ export default function Home() {
       if (data !== null) {
         const cleanItems = (data.items || []).filter((it) => !isDemoFoodItem(it.id, it.name));
         const cleanShopping = (data.shoppingItems || []).filter((it) => !isDemoShopItem(it.id, it.name));
-        const cleanFinancial = cleanItems.length > 0 ? (data.financialSaved || 0) : 0;
-        const cleanSavedCount = cleanItems.length > 0 ? (data.savedCount || 0) : 0;
+        const cleanFinancial = Number(data.financialSaved) || 0;
+        const cleanSavedCount = Number(data.savedCount) || 0;
 
         setItems(cleanItems);
         setShoppingItems(cleanShopping);
@@ -1707,7 +1700,8 @@ export default function Home() {
               used.toLowerCase().includes(item.name.toLowerCase())
           )
       );
-      setSavedCount(next.length);
+      const cookedCount = Math.max(1, prevItems.length - next.length);
+      setSavedCount((prev) => prev + cookedCount);
       return next;
     });
     setRecipePrefilledItem(undefined);
@@ -3886,6 +3880,7 @@ export default function Home() {
                               const curr = items[auditStep];
                               setItems((prev) => prev.filter((it) => it.id !== curr.id));
                               setFinancialSaved((prev) => prev + 15000);
+                              setSavedCount((prev) => prev + 1);
                               showToast(`"${curr.name}" dimasak! Saldo hemat +Rp 15.000`, "cook");
                               setAuditStep((s) => s + 1);
                             }}
@@ -4162,24 +4157,8 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   const deletedName = itemToDelete.name;
-                  const itemPrice = itemToDelete.price || 0;
-                  setItems((prev) => {
-                    const next = prev.filter((it) => it.id !== itemToDelete.id);
-                    if (next.length === 0) {
-                      setFinancialSaved(0);
-                      setSavedCount(0);
-                    } else {
-                      setFinancialSaved((prevVal) => Math.max(0, prevVal - itemPrice));
-                      setSavedCount((prevVal) => Math.max(0, prevVal - 1));
-                    }
-                    return next;
-                  });
-                  showToast(
-                    itemPrice > 0
-                      ? `"${deletedName}" dihapus. Saldo hemat disesuaikan (-Rp ${itemPrice.toLocaleString("id-ID")})`
-                      : `"${deletedName}" berhasil dihapus dari inventori`,
-                    "delete"
-                  );
+                  setItems((prev) => prev.filter((it) => it.id !== itemToDelete.id));
+                  showToast(`"${deletedName}" berhasil dihapus dari inventori`, "delete");
                   setItemToDelete(null);
                 }}
                 className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-[#E11D48] hover:bg-rose-700 shadow-sm transition flex items-center justify-center gap-1.5"

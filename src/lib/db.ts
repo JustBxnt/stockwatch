@@ -336,7 +336,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
           if (hadDemoShopping) {
             shoppingItems = shoppingItems.filter((s) => !isDemoShopItem(s.id, s.name));
           }
-          if (items.length === 0) {
+          if (hadDemoItems && items.length === 0) {
             financialSaved = 0;
             savedCount = 0;
           }
@@ -368,9 +368,10 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       if (saved !== null) {
         const parsed: UserAppData = JSON.parse(saved);
         if (!isDemoAccount) {
+          const hadDemoItems = (parsed.items || []).some((i) => isDemoFoodItem(i.id, i.name));
           parsed.items = (parsed.items || []).filter((i) => !isDemoFoodItem(i.id, i.name));
           parsed.shoppingItems = (parsed.shoppingItems || []).filter((s) => !isDemoShopItem(s.id, s.name));
-          if (parsed.items.length === 0) {
+          if (hadDemoItems && parsed.items.length === 0) {
             parsed.financialSaved = 0;
             parsed.savedCount = 0;
           }
