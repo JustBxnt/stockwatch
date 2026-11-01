@@ -53,28 +53,35 @@ const LOCAL_STORAGE_DATA_PREFIX = "stockwatch_user_data_";
 // =========================================================================
 
 export async function getCurrentUser(): Promise<UserProfile | null> {
+  // 1. Coba baca dari Supabase Auth terlebih dahulu
   if (isSupabaseConfigured()) {
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
-      if (error || !session?.user) return null;
-
-      const user = session.user;
-      return {
-        id: user.id,
-        email: user.email || "",
-        fullName: user.user_metadata?.full_name || user.email?.split("@")[0] || "Pengguna",
-        isDemo: false,
-      };
+      if (!error && session?.user) {
+        const user = session.user;
+        const profile: UserProfile = {
+          id: user.id,
+          email: user.email || "",
+          fullName: user.user_metadata?.full_name || user.email?.split("@")[0] || "Pengguna",
+          isDemo: false,
+        };
+        if (typeof window !== "undefined") {
+          localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(profile));
+        }
+        return profile;
+      }
     } catch (e) {
-      console.warn("Gagal mengecek sesi Supabase, fallback ke sesi lokal:", e);
+      console.warn("Gagal mengecek sesi Supabase, beralih ke cache lokal:", e);
     }
   }
 
-  // Fallback to local session
+  // 2. Selalu gunakan cache sesi lokal agar pengguna tidak ter-logout saat refresh browser
   if (typeof window !== "undefined") {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_SESSION_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        return JSON.parse(saved);
+      }
     } catch {}
   }
   return null;
@@ -110,6 +117,9 @@ export async function signUpUser(
           fullName: fullName.trim() || cleanEmail.split("@")[0],
           isDemo: false,
         };
+        if (typeof window !== "undefined") {
+          localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(profile));
+        }
         return { user: profile };
       }
     } catch (e: any) {
@@ -179,6 +189,9 @@ export async function signInUser(
             "Pengguna",
           isDemo: false,
         };
+        if (typeof window !== "undefined") {
+          localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(profile));
+        }
         return { user: profile };
       }
     } catch (e: any) {

@@ -5,6 +5,7 @@ import SettingsModal from "@/components/SettingsModal";
 import RecipeModal from "@/components/RecipeModal";
 import ManualAddModal from "@/components/ManualAddModal";
 import AuthModal from "@/components/AuthModal";
+import { supabase } from "@/lib/supabase";
 import {
   getCurrentUser,
   signOutUser,
@@ -923,10 +924,12 @@ export default function Home() {
 
   // Load persisted state from Database or localStorage on mount
   useEffect(() => {
+    let isMounted = true;
+
     const initData = async () => {
       try {
         const user = await getCurrentUser();
-        if (user) {
+        if (user && isMounted) {
           setCurrentUser(user);
           const userData = await loadUserData(user.id);
           if (userData && (userData.items.length > 0 || userData.shoppingItems.length > 0)) {
@@ -943,7 +946,7 @@ export default function Home() {
         const storedItems = localStorage.getItem("stockwatch_inventory_items");
         if (storedItems !== null) {
           const parsed = JSON.parse(storedItems);
-          if (Array.isArray(parsed)) {
+          if (Array.isArray(parsed) && parsed.length > 0) {
             const healed = parsed.map((it: InventoryItem) => {
               if (it.category !== "ready" && isReadyFood(it)) {
                 return { ...it, category: "ready" as const };
@@ -984,11 +987,36 @@ export default function Home() {
       } catch (e) {
         console.error("Gagal membaca database / localStorage:", e);
       } finally {
-        setIsClientLoaded(true);
+        if (isMounted) {
+          setIsClientLoaded(true);
+        }
       }
     };
 
     initData();
+
+    // Listener Supabase Auth State Change agar tidak pernah ter-logout saat refresh
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+      if (session?.user) {
+        const uProfile: UserProfile = {
+          id: session.user.id,
+          email: session.user.email || "",
+          fullName: session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "Pengguna",
+          isDemo: false,
+        };
+        setCurrentUser(uProfile);
+        localStorage.setItem("stockwatch_active_user", JSON.stringify(uProfile));
+      } else if (event === "SIGNED_OUT") {
+        setCurrentUser(null);
+        localStorage.removeItem("stockwatch_active_user");
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
 
   // Sync to database and localStorage whenever data states change
