@@ -916,11 +916,11 @@ export default function Home() {
 
   // Page mode: "dashboard" (Screen 1), "quickadd" (Screen 2), "olah" (Screen 3), "belanja" (Screen 4), or "setting" (Screen 5)
   const [currentView, setCurrentView] = useState<"dashboard" | "quickadd" | "olah" | "belanja" | "setting">("dashboard");
-  const [financialSaved, setFinancialSaved] = useState<number>(285000);
-  const [savedCount, setSavedCount] = useState<number>(5);
+  const [financialSaved, setFinancialSaved] = useState<number>(0);
+  const [savedCount, setSavedCount] = useState<number>(0);
   const [isClientLoaded, setIsClientLoaded] = useState(false);
-  const [items, setItems] = useState<InventoryItem[]>(DEFAULT_ITEMS);
-  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(DEFAULT_SHOPPING_ITEMS);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
 
   // Load persisted state from Database or localStorage on mount
   useEffect(() => {
@@ -932,21 +932,21 @@ export default function Home() {
         if (user && isMounted) {
           setCurrentUser(user);
           const userData = await loadUserData(user.id);
-          if (userData && (userData.items.length > 0 || userData.shoppingItems.length > 0)) {
-            setItems(userData.items);
-            setShoppingItems(userData.shoppingItems);
-            setFinancialSaved(userData.financialSaved);
-            setSavedCount(userData.savedCount);
+          if (userData !== null) {
+            setItems(userData.items || []);
+            setShoppingItems(userData.shoppingItems || []);
+            setFinancialSaved(userData.financialSaved || 0);
+            setSavedCount(userData.savedCount || 0);
             setIsClientLoaded(true);
             return;
           }
         }
 
-        // Local storage fallback for guest or offline mode
+        // Mode Tamu (Guest Mode) ketika belum ada user login
         const storedItems = localStorage.getItem("stockwatch_inventory_items");
         if (storedItems !== null) {
           const parsed = JSON.parse(storedItems);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
             const healed = parsed.map((it: InventoryItem) => {
               if (it.category !== "ready" && isReadyFood(it)) {
                 return { ...it, category: "ready" as const };
@@ -955,7 +955,14 @@ export default function Home() {
             });
             setItems(healed);
           }
+        } else {
+          // Hanya muat data demo untuk tamu baru pertama kali
+          setItems(DEFAULT_ITEMS);
+          setShoppingItems(DEFAULT_SHOPPING_ITEMS);
+          setFinancialSaved(285000);
+          setSavedCount(5);
         }
+
         const storedFinancial = localStorage.getItem("stockwatch_financial_saved");
         if (storedFinancial !== null) {
           setFinancialSaved(Number(storedFinancial) || 0);
@@ -1010,6 +1017,10 @@ export default function Home() {
       } else if (event === "SIGNED_OUT") {
         setCurrentUser(null);
         localStorage.removeItem("stockwatch_active_user");
+        setItems([]);
+        setShoppingItems([]);
+        setFinancialSaved(0);
+        setSavedCount(0);
       }
     });
 
@@ -1045,20 +1056,25 @@ export default function Home() {
     setCurrentUser(user);
     try {
       const data = await loadUserData(user.id);
-      if (data && (data.items.length > 0 || data.shoppingItems.length > 0)) {
-        setItems(data.items);
-        setShoppingItems(data.shoppingItems);
-        setFinancialSaved(data.financialSaved);
-        setSavedCount(data.savedCount);
+      if (data !== null) {
+        setItems(data.items || []);
+        setShoppingItems(data.shoppingItems || []);
+        setFinancialSaved(data.financialSaved || 0);
+        setSavedCount(data.savedCount || 0);
         showToast(`Data dapur "${user.fullName}" berhasil dimuat!`, "success");
       } else {
+        // Pengguna baru pertama kali mendaftar
+        setItems([]);
+        setShoppingItems([]);
+        setFinancialSaved(0);
+        setSavedCount(0);
         await saveUserData(user.id, {
-          items,
-          shoppingItems,
-          financialSaved,
-          savedCount,
+          items: [],
+          shoppingItems: [],
+          financialSaved: 0,
+          savedCount: 0,
         });
-        showToast(`Akun "${user.fullName}" siap! Data inventori tersinkron.`, "success");
+        showToast(`Akun "${user.fullName}" siap! Dapur Anda bersih dan siap diisi.`, "success");
       }
     } catch (e) {
       console.error("Gagal sinkronisasi saat login:", e);
@@ -1068,10 +1084,10 @@ export default function Home() {
   const handleSignOut = async () => {
     await signOutUser();
     setCurrentUser(null);
-    setItems(DEFAULT_ITEMS);
-    setShoppingItems(DEFAULT_SHOPPING_ITEMS);
-    setFinancialSaved(285000);
-    setSavedCount(5);
+    setItems([]);
+    setShoppingItems([]);
+    setFinancialSaved(0);
+    setSavedCount(0);
     showToast("Anda telah keluar dari akun. Berpindah ke mode tamu.", "info");
   };
 

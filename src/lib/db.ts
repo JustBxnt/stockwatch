@@ -270,7 +270,8 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         supabase.from("user_metrics").select("*").eq("user_id", userId).maybeSingle(),
       ]);
 
-      if (!invRes.error && invRes.data && invRes.data.length > 0) {
+      // Jika query berhasil (error null), data pengguna valid ditemukan di database
+      if (!invRes.error && invRes.data) {
         const items: InventoryItemDB[] = invRes.data.map((row: any) => ({
           id: Number(row.id),
           name: row.name,
@@ -302,7 +303,14 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         const financialSaved = Number(metricRes.data?.financial_saved) || 0;
         const savedCount = Number(metricRes.data?.saved_count) || 0;
 
-        return { items, shoppingItems, financialSaved, savedCount };
+        const result: UserAppData = { items, shoppingItems, financialSaved, savedCount };
+
+        // Perbarui cache per user di browser
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`${LOCAL_STORAGE_DATA_PREFIX}${userId}`, JSON.stringify(result));
+        }
+
+        return result;
       }
     } catch (e) {
       console.warn("Gagal memuat data dari Supabase, beralih ke cache lokal:", e);
@@ -313,7 +321,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
   if (typeof window !== "undefined") {
     try {
       const saved = localStorage.getItem(`${LOCAL_STORAGE_DATA_PREFIX}${userId}`);
-      if (saved) {
+      if (saved !== null) {
         return JSON.parse(saved);
       }
     } catch {}
