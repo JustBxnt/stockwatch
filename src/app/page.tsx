@@ -58,6 +58,9 @@ import {
   User,
   LogOut,
   Database,
+  Download,
+  Smartphone,
+  BellRing,
 } from "lucide-react";
 
 interface InventoryItem {
@@ -1246,10 +1249,11 @@ export default function Home() {
   // QuickAdd Scanner state
   const [scanQty, setScanQty] = useState(2);
 
-  // Offline file input ref for settings
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // PWA Installation state
+  const [pwaPrompt, setPwaPrompt] = useState<any>(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(false);
 
-  // Settings PWA States
+  // Settings Reminder States (Disimpan permanen di localStorage)
   const [settingsToggles, setSettingsToggles] = useState({
     webPush: true,
     h3Reminder: true,
@@ -1257,49 +1261,168 @@ export default function Home() {
     antiSpamDigest: true,
   });
 
-  const toggleSetting = (key: keyof typeof settingsToggles) => {
-    setSettingsToggles((prev) => {
-      const nextVal = !prev[key];
-      showToast(nextVal ? "Pengaturan diaktifkan" : "Pengaturan dinonaktifkan", "settings");
-      return { ...prev, [key]: nextVal };
-    });
-  };
+  // Listener PWA Prompt & Pemuatan Pengaturan Pengingat
+  useEffect(() => {
+    if (typeof window === "undefined") return;
 
-  const handleExportData = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(items, null, 2));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `stockwatch-backup-${new Date().toISOString().split("T")[0]}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    showToast("Data inventori berhasil diekspor (JSON)!", "save");
-  };
+    // Cek apakah sudah berjalan di mode PWA (standalone)
+    if (window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone) {
+      setIsPwaInstalled(true);
+    }
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target?.result as string);
-        if (Array.isArray(imported) && imported.length > 0) {
-          setItems(imported);
-          showToast(`Berhasil mengimpor ${imported.length} bahan dari cadangan!`, "success");
-        } else {
-          showToast("Format file JSON tidak sesuai", "warning");
-        }
-      } catch (err) {
-        showToast("Gagal membaca file JSON", "error");
-      }
+    const handlePrompt = (e: any) => {
+      e.preventDefault();
+      setPwaPrompt(e);
     };
-    reader.readAsText(file);
-    e.target.value = "";
+
+    const handleInstalled = () => {
+      setIsPwaInstalled(true);
+      setPwaPrompt(null);
+      showToast("StockWatch OS berhasil dipasang sebagai aplikasi!", "success");
+    };
+
+    window.addEventListener("beforeinstallprompt", handlePrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+
+    try {
+      const saved = localStorage.getItem("stockwatch_reminder_settings");
+      if (saved) {
+        setSettingsToggles(JSON.parse(saved));
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handlePrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
+  }, []);
+
+  // Fungsi Pemicu Instalasi PWA dengan Satu Klik
+  const handleInstallPwa = async () => {
+    if (pwaPrompt) {
+      pwaPrompt.prompt();
+      const choice = await pwaPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        showToast("Memasang StockWatch OS ke perangkat...", "success");
+      }
+      setPwaPrompt(null);
+    } else {
+      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIos) {
+        showToast("Di Safari iOS: Ketuk tombol 'Share' lalu pilih 'Add to Home Screen'.", "info");
+      } else {
+        showToast("Klik ikon 'Install' di bilah alamat browser untuk memasang aplikasi.", "info");
+      }
+    }
   };
 
-  const handleImportData = () => {
-    fileInputRef.current?.click();
+  // Toggle Pengaturan dengan Izin Notification API Langsung
+  const toggleSetting = async (key: keyof typeof settingsToggles) => {
+    const nextVal = !settingsToggles[key];
+    const updated = { ...settingsToggles, [key]: nextVal };
+    setSettingsToggles(updated);
+    try {
+      localStorage.setItem("stockwatch_reminder_settings", JSON.stringify(updated));
+    } catch {}
+
+    if (key === "webPush") {
+      if (nextVal) {
+        if ("Notification" in window) {
+          const perm = await Notification.requestPermission();
+          if (perm === "granted") {
+            showToast("Web Push Notification berhasil diaktifkan!", "success");
+            try {
+              new Notification("StockWatch OS - Pengingat Aktif!", {
+                body: "Pengingat bahan kedaluwarsa & anti-mubazir siap memantau dapur Anda.",
+                icon: "/icon-192.png",
+              });
+            } catch (e) {}
+          } else if (perm === "denied") {
+            showToast("Izin notifikasi diblokir di peramban Anda. Silakan aktifkan di ikon setelan situs peramban.", "warning");
+          }
+        } else {
+          showToast("Peramban Anda belum mendukung Web Notification.", "warning");
+        }
+      } else {
+        showToast("Web Push Notification dinonaktifkan", "info");
+      }
+    } else {
+      showToast(nextVal ? "Pengaturan pengingat diaktifkan" : "Pengaturan pengingat dinonaktifkan", "settings");
+    }
   };
+
+  // Uji Coba Pengiriman Notifikasi Langsung ke Perangkat Pengguna
+  const handleTestNotification = async () => {
+    if (!("Notification" in window)) {
+      showToast("Peramban tidak mendukung Web Notification.", "warning");
+      return;
+    }
+
+    let perm = Notification.permission;
+    if (perm !== "granted") {
+      perm = await Notification.requestPermission();
+    }
+
+    if (perm === "granted") {
+      const criticals = items.filter((it) => {
+        const t = (it.expiryText || "").toLowerCase();
+        return t.includes("basi") || t.includes("hari ini") || t.includes("h-1") || t.includes("h-2");
+      });
+
+      let notifTitle = "StockWatch OS - Dapur Aman!";
+      let notifBody = "Semua bahan makanan terpantau rapi. Fitur pengingat siap bekerja.";
+
+      if (criticals.length > 0) {
+        notifTitle = `🚨 ${criticals.length} Bahan Kritis Perlu Dimasak!`;
+        notifBody = `Segera konsumsi: ${criticals.slice(0, 2).map((i) => i.name).join(", ")}. Selamatkan nilai makanan Anda!`;
+      }
+
+      try {
+        new Notification(notifTitle, {
+          body: notifBody,
+          icon: "/icon-192.png",
+        });
+        showToast("Notifikasi berhasil dikirim ke layar Anda!", "success");
+      } catch (err) {
+        showToast("Gagal memunculkan notifikasi sistem", "error");
+      }
+    } else {
+      showToast("Izin notifikasi belum diaktifkan. Klik Izinkan pada pop-up peramban.", "warning");
+    }
+  };
+
+  // Pemantau Otomatis Notifikasi Digest (Bebas Spam: 1x Per Hari)
+  useEffect(() => {
+    if (!isClientLoaded || items.length === 0 || !settingsToggles.webPush) return;
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const todayKey = new Date().toISOString().split("T")[0];
+    const lastDigest = localStorage.getItem("stockwatch_last_digest_date");
+
+    if (settingsToggles.antiSpamDigest && lastDigest === todayKey) {
+      return;
+    }
+
+    const criticalItems = items.filter((it) => {
+      const t = (it.expiryText || "").toLowerCase();
+      const isH1 = t.includes("basi") || t.includes("hari ini") || t.includes("h-1");
+      const isH3 = t.includes("2 hari") || t.includes("h-2") || t.includes("h-3");
+      if (settingsToggles.h1Critical && isH1) return true;
+      if (settingsToggles.h3Reminder && isH3) return true;
+      return false;
+    });
+
+    if (criticalItems.length > 0) {
+      try {
+        new Notification(`StockWatch: ${criticalItems.length} Bahan Butuh Perhatian!`, {
+          body: `Bahan seperti "${criticalItems[0].name}" mendekati tanggal batas. Segera olah untuk cegah mubazir.`,
+          icon: "/icon-192.png",
+        });
+        localStorage.setItem("stockwatch_last_digest_date", todayKey);
+      } catch (e) {}
+    }
+  }, [items, isClientLoaded, settingsToggles]);
 
   // Shopping List Add Modal States
   const [isAddShoppingModalOpen, setIsAddShoppingModalOpen] = useState(false);
@@ -1712,30 +1835,45 @@ export default function Home() {
                 <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0F172A]">StockWatch</h1>
               </div>
 
-              {/* User Profile or Auth Trigger */}
-              {currentUser ? (
-                <div
-                  onClick={() => {
-                    setActiveTab("setting");
-                    setCurrentView("setting");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-[11px] sm:text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors"
-                  title="Lihat Akun & Pengaturan Database"
-                >
-                  <User className="w-3.5 h-3.5 text-[#059669]" />
-                  <span className="truncate max-w-[120px] sm:max-w-[160px]">{currentUser.fullName}</span>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-[#0D9488] hover:bg-[#0f766e] text-white text-[11px] sm:text-xs font-bold tracking-wide transition-colors shadow-xs active:scale-95"
-                  title="Masuk atau Daftar Akun untuk Simpan ke Database"
-                >
-                  <User className="w-3.5 h-3.5 text-white" />
-                  <span>Masuk / Daftar</span>
-                </button>
-              )}
+              {/* Actions & Profile in Header */}
+              <div className="flex items-center gap-2">
+                {!isPwaInstalled && (
+                  <button
+                    type="button"
+                    onClick={handleInstallPwa}
+                    className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full bg-[#F0FDFA] hover:bg-[#CCFBF1] border border-[#99F6E4] text-[#0D9488] text-[10px] sm:text-xs font-bold tracking-wide transition-all shadow-2xs active:scale-95"
+                    title="Pasang StockWatch OS sebagai Shortcut Aplikasi di Komputer/HP"
+                  >
+                    <Download className="w-3.5 h-3.5 text-[#0D9488]" />
+                    <span>Install App</span>
+                  </button>
+                )}
+
+                {/* User Profile or Auth Trigger */}
+                {currentUser ? (
+                  <div
+                    onClick={() => {
+                      setActiveTab("setting");
+                      setCurrentView("setting");
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] text-[11px] sm:text-xs font-bold tracking-wide cursor-pointer hover:bg-[#D1FAE5] transition-colors"
+                    title="Lihat Akun & Pengaturan Database"
+                  >
+                    <User className="w-3.5 h-3.5 text-[#059669]" />
+                    <span className="truncate max-w-[120px] sm:max-w-[160px]">{currentUser.fullName}</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsAuthModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-[#0D9488] hover:bg-[#0f766e] text-white text-[11px] sm:text-xs font-bold tracking-wide transition-colors shadow-xs active:scale-95"
+                    title="Masuk atau Daftar Akun untuk Simpan ke Database"
+                  >
+                    <User className="w-3.5 h-3.5 text-white" />
+                    <span>Masuk / Daftar</span>
+                  </button>
+                )}
+              </div>
             </header>
 
             {/* Weekend Fridge Audit Banner */}
@@ -2949,6 +3087,49 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Section: Instalasi Aplikasi PWA */}
+            <div className="mb-6">
+              <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase mb-3.5">
+                APLIKASI &amp; PINTASAN CEPAT (PWA)
+              </h2>
+
+              <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-bold text-[#0F172A] flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-[#0D9488]" />
+                    <span>Jadikan Aplikasi di Layar Utama / Desktop</span>
+                  </div>
+                  <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
+                    {isPwaInstalled
+                      ? "Aplikasi StockWatch OS sudah terpasang dan siap digunakan langsung dari layar perangkat Anda."
+                      : "Pasang shortcut aplikasi StockWatch ke desktop Windows atau home screen HP Anda agar bisa dibuka cepat layaknya aplikasi native."}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleInstallPwa}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs shrink-0 ${
+                    isPwaInstalled
+                      ? "bg-[#ECFDF5] text-[#059669] border border-[#A7F3D0] cursor-default"
+                      : "bg-[#0D9488] hover:bg-[#0f766e] text-white active:scale-95"
+                  }`}
+                >
+                  {isPwaInstalled ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-[#059669]" />
+                      <span>Aplikasi Terpasang</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 text-white" />
+                      <span>Pasang Aplikasi Sekarang</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
             {/* Section 1: Preferensi Pengingat (Anti-Spam) */}
             <div className="mb-6">
               <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase mb-3.5">
@@ -3014,7 +3195,7 @@ export default function Home() {
                 </div>
 
                 {/* Setting 4: Anti-Spam Digest */}
-                <div className="flex items-center justify-between pt-4">
+                <div className="flex items-center justify-between py-4">
                   <div>
                     <div className="text-sm font-bold text-[#0F172A]">Anti-Spam Digest (Gabung Notif)</div>
                     <div className="text-xs text-[#94A3B8] mt-0.5">Maksimal 1 notifikasi rangkuman per hari</div>
@@ -3031,52 +3212,25 @@ export default function Home() {
                     />
                   </button>
                 </div>
-              </div>
-            </div>
 
-            {/* Section 2: Local-First Offline Storage */}
-            <div className="mb-6">
-              <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase mb-3.5">
-                LOCAL-FIRST OFFLINE STORAGE
-              </h2>
-
-              <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm">
-                <div className="text-sm font-bold text-[#0F172A] mb-1">
-                  Data Tersimpan Aman di Peramban Anda
-                </div>
-                <p className="text-xs text-[#64748B] mb-4">
-                  Aplikasi tetap bisa digunakan saat memasak di dapur tanpa sinyal.
-                </p>
-
-                <div className="flex flex-wrap items-center gap-3">
+                {/* Uji Coba Notifikasi Nyata */}
+                <div className="pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="text-xs text-[#64748B]">
+                    Uji coba apakah browser dan HP Anda siap menampilkan pop-up notifikasi
+                  </div>
                   <button
-                    onClick={handleExportData}
-                    className="px-4 py-2.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[#E2E8F0] rounded-xl text-xs font-bold text-[#0F172A] flex items-center gap-2 transition-colors shadow-xs"
+                    type="button"
+                    onClick={handleTestNotification}
+                    className="px-3.5 py-2 rounded-xl bg-[#F0FDFA] hover:bg-[#CCFBF1] border border-[#99F6E4] text-[#0D9488] text-xs font-bold flex items-center justify-center gap-1.5 transition shrink-0 active:scale-95 shadow-2xs"
                   >
-                    <Save className="w-4 h-4 text-[#0F172A]" />
-                    <span>Ekspor Data (JSON)</span>
+                    <BellRing className="w-3.5 h-3.5 text-[#0D9488]" />
+                    <span>Tes Notifikasi Sekarang</span>
                   </button>
-
-                  <button
-                    onClick={handleImportData}
-                    className="px-4 py-2.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[#E2E8F0] rounded-xl text-xs font-bold text-[#0F172A] flex items-center gap-2 transition-colors shadow-xs"
-                  >
-                    <RefreshCw className="w-4 h-4 text-[#0F172A]" />
-                    <span>Impor Cadangan</span>
-                  </button>
-
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleImportFile}
-                    accept=".json"
-                    className="hidden"
-                  />
                 </div>
               </div>
             </div>
 
-            {/* Section 3: Reset & Pembersihan Data */}
+            {/* Section 2: Reset & Pembersihan Data */}
             <div className="mb-6">
               <h2 className="text-xs font-extrabold tracking-wider text-[#0F172A] uppercase mb-3.5">
                 KONTROL &amp; PEMBERSIHAN DATA
@@ -3084,10 +3238,10 @@ export default function Home() {
 
               <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm">
                 <div className="text-sm font-bold text-[#0F172A] mb-1">
-                  Mulai Bersih atau Muat Data Demo
+                  Kosongkan Seluruh Data
                 </div>
                 <p className="text-xs text-[#64748B] mb-4">
-                  Anda dapat mengosongkan seluruh stok dan daftar belanja ke 0, atau memuat bahan contoh untuk simulasi demo.
+                  Anda dapat mengosongkan seluruh data stok kulkas, daftar belanja, dan saldo hemat finansial kembali ke angka 0 secara bersih.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -3098,15 +3252,6 @@ export default function Home() {
                   >
                     <Trash2 className="w-4 h-4 text-[#E11D48]" />
                     <span>Kosongkan Semua Data (Reset ke 0)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleResetToDefault}
-                    className="px-4 py-2.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#475569] flex items-center gap-2 transition-colors shadow-xs"
-                  >
-                    <RotateCcw className="w-4 h-4 text-[#475569]" />
-                    <span>Muat Data Demo Bawaan</span>
                   </button>
                 </div>
               </div>

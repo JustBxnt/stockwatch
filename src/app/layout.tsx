@@ -32,21 +32,14 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              if (typeof window !== 'undefined') {
-                if ('serviceWorker' in navigator) {
-                  navigator.serviceWorker.getRegistrations().then(function(regs) {
-                    for (var r of regs) {
-                      r.unregister();
-                    }
+              if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').then(function(reg) {
+                    // Service Worker registered successfully
+                  }).catch(function(err) {
+                    console.warn('SW registration failed:', err);
                   });
-                }
-                if ('caches' in window) {
-                  caches.keys().then(function(names) {
-                    for (var name of names) {
-                      caches.delete(name);
-                    }
-                  });
-                }
+                });
               }
             `,
           }}
