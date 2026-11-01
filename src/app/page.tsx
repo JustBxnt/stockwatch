@@ -1390,10 +1390,15 @@ export default function Home() {
     }
   };
 
-  // Uji Coba Pengiriman Notifikasi Langsung ke Perangkat Pengguna
+  // Uji Coba Pengiriman Notifikasi Langsung ke Perangkat Pengguna Sesuai Preferensi Aktif
   const handleTestNotification = async () => {
     if (typeof window === "undefined" || !("Notification" in window)) {
       showToast("Peramban Anda tidak mendukung Web Notification.", "warning");
+      return;
+    }
+
+    if (!settingsToggles.webPush) {
+      showToast("Web Push Notification sedang nonaktif. Aktifkan toggle di atas terlebih dahulu.", "info");
       return;
     }
 
@@ -1403,17 +1408,50 @@ export default function Home() {
     }
 
     if (perm === "granted") {
-      const criticals = items.filter((it) => {
+      // Ambil bahan dari inventori yang sesuai filter kedaluwarsa
+      const h1Items = items.filter((it) => {
         const t = (it.expiryText || "").toLowerCase();
-        return t.includes("basi") || t.includes("hari ini") || t.includes("h-1") || t.includes("h-2");
+        return t.includes("basi") || t.includes("hari ini") || t.includes("h-1");
+      });
+      const h3Items = items.filter((it) => {
+        const t = (it.expiryText || "").toLowerCase();
+        return t.includes("2 hari") || t.includes("h-2") || t.includes("h-3");
       });
 
-      let notifTitle = "StockWatch OS - Dapur Aman!";
-      let notifBody = "Semua bahan makanan terpantau rapi. Fitur pengingat siap bekerja.";
+      let notifTitle = "";
+      let notifBody = "";
 
-      if (criticals.length > 0) {
-        notifTitle = `🚨 ${criticals.length} Bahan Kritis Perlu Dimasak!`;
-        notifBody = `Segera konsumsi: ${criticals.slice(0, 2).map((i) => i.name).join(", ")}. Selamatkan nilai makanan Anda!`;
+      if (settingsToggles.antiSpamDigest) {
+        // SKENARIO A: Anti-Spam Digest Aktif (Rangkuman 1 Notif Gabungan)
+        const totalAlerts = (settingsToggles.h1Critical ? h1Items.length : 0) + (settingsToggles.h3Reminder ? h3Items.length : 0);
+        if (totalAlerts > 0) {
+          const sampleNames = [...h1Items, ...h3Items].slice(0, 2).map((i) => i.name).join(", ");
+          notifTitle = `StockWatch Digest: ${totalAlerts} Bahan Perlu Perhatian!`;
+          notifBody = `Rangkuman Dapur: ${sampleNames} mendekati batas kedaluwarsa. Yuk segera olah!`;
+        } else {
+          notifTitle = "StockWatch Digest: Dapur Terkendali!";
+          notifBody = "Rangkuman Harian: Seluruh stok bahan makanan Anda saat ini dalam kondisi aman dan segar.";
+        }
+      } else if (settingsToggles.h1Critical && h1Items.length > 0) {
+        // SKENARIO B: Pengingat H-1 Kritis Spesifik
+        notifTitle = `🚨 Peringatan Kritis (H-1): ${h1Items[0].name}!`;
+        notifBody = `Masa simpan hampir habis (${h1Items[0].expiryText}). Masak sekarang untuk hemat Rp ${(h1Items[0].price || 25000).toLocaleString("id-ID")}!`;
+      } else if (settingsToggles.h3Reminder && h3Items.length > 0) {
+        // SKENARIO C: Pengingat H-3 Persiapan Dapur Spesifik
+        notifTitle = `📅 Pengingat H-3: ${h3Items[0].name}`;
+        notifBody = `Bahan ini baik dikonsumsi dalam 2-3 hari ke depan (${h3Items[0].expiryText}). Siapkan menu olahan Anda!`;
+      } else {
+        // SKENARIO D: Simulasi Nyata jika Inventori Kosong atau Bahan Masih Sangat Segar
+        if (settingsToggles.h1Critical && !settingsToggles.h3Reminder) {
+          notifTitle = "🚨 [Tes H-1] Peringatan Kritis Bahan";
+          notifBody = "Prioritas Tinggi: Bahan berlabel 'Habiskan Hari Ini' atau 'Basi Besok' akan memicu peringatan ini.";
+        } else if (settingsToggles.h3Reminder && !settingsToggles.h1Critical) {
+          notifTitle = "📅 [Tes H-3] Persiapan Bahan Dapur";
+          notifBody = "Persiapan Dapur: Notifikasi hening untuk merencanakan menu masak 2-3 hari sebelum kedaluwarsa.";
+        } else {
+          notifTitle = "StockWatch OS: Notifikasi Aktif!";
+          notifBody = "Sistem pengingat dapur siap bekerja memantau bahan kulkas Anda sesuai preferensi yang dipilih.";
+        }
       }
 
       const success = await displaySystemNotification(notifTitle, {
