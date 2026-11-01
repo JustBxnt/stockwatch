@@ -280,27 +280,14 @@ export function isReadyFood(item?: { name?: string; category?: string; location?
   return readyKeywords.some((kw) => n.includes(kw));
 }
 
-export function isDemoFoodItem(id: number, name?: string): boolean {
-  const n = (name || "").toLowerCase().trim();
-  return (
-    id <= 10 ||
-    n === "kangkung segar" ||
-    n === "ayam geprek sisa semalam" ||
-    n === "susu uht fresh" ||
-    n === "telur ayam kampung" ||
-    n === "daging sapi slice"
-  );
+export function isDemoFoodItem(id: number, _name?: string): boolean {
+  // Hanya filter ID bawaan demo dummy (1 s/d 10). Makanan buatan user memiliki ID timestamp Date.now()
+  return id > 0 && id <= 10;
 }
 
-export function isDemoShopItem(id: number, name?: string): boolean {
-  const n = (name || "").toLowerCase().trim();
-  return (
-    id <= 10 ||
-    n.includes("telur ayam kampung") ||
-    n.includes("tahu sutra") ||
-    n.includes("bawang merah") ||
-    n.includes("susu uht full cream")
-  );
+export function isDemoShopItem(id: number, _name?: string): boolean {
+  // Hanya filter ID bawaan demo dummy (1 s/d 10)
+  return id > 0 && id <= 10;
 }
 
 function isSweetItem(name: string): boolean {
@@ -945,6 +932,10 @@ export default function Home() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
 
+  // Refs untuk mencegah race condition sinkronisasi data saat login & logout
+  const isUserDataLoadedRef = useRef(false);
+  const isSigningOutRef = useRef(false);
+
   // Load persisted state from Database or localStorage on mount
   useEffect(() => {
     let isMounted = true;
@@ -953,6 +944,7 @@ export default function Home() {
       try {
         const user = await getCurrentUser();
         if (user && isMounted) {
+          isUserDataLoadedRef.current = false;
           setCurrentUser(user);
           const userData = await loadUserData(user.id);
           if (userData !== null) {
@@ -980,6 +972,7 @@ export default function Home() {
             setFinancialSaved(0);
             setSavedCount(0);
           }
+          isUserDataLoadedRef.current = true;
           setIsClientLoaded(true);
           return;
         }
@@ -1023,6 +1016,7 @@ export default function Home() {
           const storedCount = localStorage.getItem("stockwatch_saved_count");
           setSavedCount(storedCount ? Number(storedCount) || 0 : 0);
         }
+        isUserDataLoadedRef.current = true;
       } catch (e) {
         console.error("Gagal membaca database / localStorage:", e);
       } finally {
@@ -1038,6 +1032,7 @@ export default function Home() {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
       if (session?.user) {
+        isUserDataLoadedRef.current = false;
         const uProfile: UserProfile = {
           id: session.user.id,
           email: session.user.email || "",
@@ -1071,8 +1066,11 @@ export default function Home() {
           setFinancialSaved(0);
           setSavedCount(0);
         }
+        isUserDataLoadedRef.current = true;
         setIsClientLoaded(true);
       } else if (event === "SIGNED_OUT") {
+        isSigningOutRef.current = true;
+        isUserDataLoadedRef.current = false;
         setCurrentUser(null);
         localStorage.removeItem("stockwatch_active_user");
         localStorage.removeItem("stockwatch_inventory_items");
@@ -1083,6 +1081,9 @@ export default function Home() {
         setShoppingItems([]);
         setFinancialSaved(0);
         setSavedCount(0);
+        setTimeout(() => {
+          isSigningOutRef.current = false;
+        }, 1000);
       }
     });
 
@@ -1095,8 +1096,10 @@ export default function Home() {
   // Sync to database and localStorage whenever data states change
   useEffect(() => {
     if (!isClientLoaded) return;
+    if (isSigningOutRef.current) return; // Jangan timpa data saat proses logout!
     try {
       if (currentUser) {
+        if (!isUserDataLoadedRef.current) return; // Jangan simpan sebelum data user selesai dimuat!
         localStorage.setItem(`stockwatch_user_data_${currentUser.id}`, JSON.stringify({
           items,
           shoppingItems,
@@ -1121,6 +1124,7 @@ export default function Home() {
   }, [items, financialSaved, savedCount, shoppingItems, isClientLoaded, currentUser]);
 
   const handleAuthSuccess = async (user: UserProfile) => {
+    isUserDataLoadedRef.current = false;
     setCurrentUser(user);
     // Bersihkan residu guest localStorage
     localStorage.removeItem("stockwatch_inventory_items");
@@ -1149,6 +1153,7 @@ export default function Home() {
             savedCount: cleanSavedCount,
           });
         }
+        isUserDataLoadedRef.current = true;
         showToast(`Dapur "${user.fullName}" berhasil disinkronkan!`, "success");
       } else {
         // Pengguna baru pertama kali mendaftar
@@ -1162,14 +1167,18 @@ export default function Home() {
           financialSaved: 0,
           savedCount: 0,
         });
+        isUserDataLoadedRef.current = true;
         showToast(`Akun "${user.fullName}" siap! Dapur Anda bersih dan siap diisi.`, "success");
       }
     } catch (e) {
       console.error("Gagal sinkronisasi saat login:", e);
+      isUserDataLoadedRef.current = true;
     }
   };
 
   const handleSignOut = async () => {
+    isSigningOutRef.current = true;
+    isUserDataLoadedRef.current = false;
     await signOutUser();
     setCurrentUser(null);
     localStorage.removeItem("stockwatch_active_user");
@@ -1182,6 +1191,9 @@ export default function Home() {
     setFinancialSaved(0);
     setSavedCount(0);
     showToast("Anda telah keluar dari akun. Berpindah ke mode tamu.", "info");
+    setTimeout(() => {
+      isSigningOutRef.current = false;
+    }, 1000);
   };
 
   const handleClearAccountData = async () => {

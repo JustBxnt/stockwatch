@@ -271,27 +271,14 @@ export async function signOutUser(): Promise<void> {
 // DATABASE SYNC & PERSISTENCE
 // =========================================================================
 
-function isDemoFoodItem(id: number, name: string): boolean {
-  const n = (name || "").toLowerCase().trim();
-  return (
-    id <= 10 ||
-    n === "kangkung segar" ||
-    n === "ayam geprek sisa semalam" ||
-    n === "susu uht fresh" ||
-    n === "telur ayam kampung" ||
-    n === "daging sapi slice"
-  );
+function isDemoFoodItem(id: number, _name?: string): boolean {
+  // Hanya filter ID bawaan demo dummy (1 s/d 10). Makanan buatan user memiliki ID timestamp Date.now()
+  return id > 0 && id <= 10;
 }
 
-function isDemoShopItem(id: number, name: string): boolean {
-  const n = (name || "").toLowerCase().trim();
-  return (
-    id <= 10 ||
-    n.includes("telur ayam kampung") ||
-    n.includes("tahu sutra") ||
-    n.includes("bawang merah") ||
-    n.includes("susu uht full cream")
-  );
+function isDemoShopItem(id: number, _name?: string): boolean {
+  // Hanya filter ID bawaan demo dummy (1 s/d 10)
+  return id > 0 && id <= 10;
 }
 
 export async function loadUserData(userId: string): Promise<UserAppData | null> {
