@@ -945,6 +945,29 @@ export default function Home() {
 
     const initData = async () => {
       try {
+        // Tampilkan data dari cache lokal secara instan (menghilangkan jeda kosong/kedip saat refresh)
+        if (typeof window !== "undefined") {
+          const cachedUserStr = localStorage.getItem("stockwatch_active_user");
+          if (cachedUserStr) {
+            try {
+              const cachedUser = JSON.parse(cachedUserStr);
+              if (cachedUser && cachedUser.id) {
+                setCurrentUser(cachedUser);
+                const cachedDataStr = localStorage.getItem(`stockwatch_user_data_${cachedUser.id}`);
+                if (cachedDataStr) {
+                  const parsed = JSON.parse(cachedDataStr);
+                  if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+                    setItems(parsed.items);
+                    if (Array.isArray(parsed.shoppingItems)) setShoppingItems(parsed.shoppingItems);
+                    if (parsed.financialSaved !== undefined) setFinancialSaved(Number(parsed.financialSaved) || 0);
+                    if (parsed.savedCount !== undefined) setSavedCount(Number(parsed.savedCount) || 0);
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+
         const user = await getCurrentUser();
         if (user && isMounted) {
           isUserDataLoadedRef.current = false;
@@ -2130,7 +2153,12 @@ export default function Home() {
 
             {/* Inventory Item Cards List */}
             <div className="flex flex-col gap-2.5">
-              {filteredItems.length === 0 ? (
+              {!isClientLoaded && items.length === 0 ? (
+                <div className="flex flex-col gap-2.5 animate-pulse py-2">
+                  <div className="w-full h-24 bg-white/80 rounded-2xl border border-slate-200/60 shadow-xs"></div>
+                  <div className="w-full h-24 bg-white/80 rounded-2xl border border-slate-200/60 shadow-xs"></div>
+                </div>
+              ) : filteredItems.length === 0 ? (
                 <div className="w-full bg-white border border-dashed border-[#CBD5E1] rounded-2xl py-12 px-6 flex flex-col items-center justify-center text-center animate-in fade-in duration-150">
                   <div className="w-12 h-12 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex items-center justify-center text-[#94A3B8] mb-3">
                     <Refrigerator className="w-6 h-6 opacity-60" />
