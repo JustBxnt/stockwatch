@@ -1539,7 +1539,8 @@ export default function Home() {
     const checkedItems = shoppingItems.filter((i) => i.checked);
     if (checkedItems.length === 0) return;
 
-    const newInventoryItems: InventoryItem[] = checkedItems.map((item) => {
+    const baseTimestamp = Date.now();
+    const newInventoryItems: InventoryItem[] = checkedItems.map((item, idx) => {
       const cleanName = item.name.split("(")[0].trim();
       const cleanQty = item.qty || (item.name.includes("(")
         ? item.name.split("(")[1].replace(")", "").trim()
@@ -1553,7 +1554,7 @@ export default function Home() {
       const borderCol = expDays <= 2 ? "border-l-[#E11D48]" : expDays <= 4 ? "border-l-[#D97706]" : "border-l-[#059669]";
 
       return {
-        id: Date.now() + Math.random(),
+        id: Math.floor(baseTimestamp + idx + Math.floor(Math.random() * 100)),
         name: cleanName,
         qty: cleanQty,
         expiryText: expText,

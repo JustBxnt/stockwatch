@@ -325,6 +325,27 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         let financialSaved = Number(metricRes.data?.financial_saved) || 0;
         let savedCount = Number(metricRes.data?.saved_count) || 0;
 
+        // Auto recovery: Jika database Supabase kosong, pulihkan dari cache localStorage pengguna
+        if (items.length === 0 && typeof window !== "undefined") {
+          try {
+            const cached = localStorage.getItem(`${LOCAL_STORAGE_DATA_PREFIX}${userId}`);
+            if (cached) {
+              const parsedCached: UserAppData = JSON.parse(cached);
+              if (parsedCached && Array.isArray(parsedCached.items) && parsedCached.items.length > 0) {
+                items = parsedCached.items.map((i, idx) => ({
+                  ...i,
+                  id: Math.floor(Number(i.id)) || Math.floor(Date.now() + idx),
+                }));
+                if (Array.isArray(parsedCached.shoppingItems) && shoppingItems.length === 0) {
+                  shoppingItems = parsedCached.shoppingItems;
+                }
+                // Sinkronkan kembali data yang terselamatkan ke Supabase
+                saveUserData(userId, { items, shoppingItems, financialSaved, savedCount });
+              }
+            }
+          } catch {}
+        }
+
         // Jika bukan akun demo resmi, bersihkan semua residu demo bawaan agar akun pengguna selalu bersih murni
         if (!isDemoAccount) {
           const hadDemoItems = items.some((i) => isDemoFoodItem(i.id, i.name));
@@ -402,11 +423,9 @@ export async function saveUserData(
   if (isSupabaseConfigured()) {
     try {
       // 1. Upsert Inventory Items
-      // Clear existing for user then insert
-      await supabase.from("inventory_items").delete().eq("user_id", userId);
       if (data.items.length > 0) {
-        const rows = data.items.map((i) => ({
-          id: i.id,
+        const rows = data.items.map((i, idx) => ({
+          id: Math.floor(Number(i.id)) || Math.floor(Date.now() + idx),
           user_id: userId,
           name: i.name,
           qty: i.qty,
@@ -419,14 +438,19 @@ export async function saveUserData(
           action_icon: i.actionIcon,
           price: i.price || 0,
         }));
-        await supabase.from("inventory_items").insert(rows);
+        await supabase.from("inventory_items").delete().eq("user_id", userId);
+        const { error: insErr } = await supabase.from("inventory_items").insert(rows);
+        if (insErr) {
+          console.error("Gagal simpan inventori ke Supabase:", insErr);
+        }
+      } else {
+        await supabase.from("inventory_items").delete().eq("user_id", userId);
       }
 
       // 2. Upsert Shopping Items
-      await supabase.from("shopping_items").delete().eq("user_id", userId);
       if (data.shoppingItems.length > 0) {
-        const shopRows = data.shoppingItems.map((s) => ({
-          id: s.id,
+        const shopRows = data.shoppingItems.map((s, idx) => ({
+          id: Math.floor(Number(s.id)) || Math.floor(Date.now() + idx),
           user_id: userId,
           name: s.name,
           subtitle: s.subtitle,
@@ -439,7 +463,13 @@ export async function saveUserData(
           location: s.location || "Kulkas Utama",
           expiry_days: s.expiryDays || 7,
         }));
-        await supabase.from("shopping_items").insert(shopRows);
+        await supabase.from("shopping_items").delete().eq("user_id", userId);
+        const { error: shopErr } = await supabase.from("shopping_items").insert(shopRows);
+        if (shopErr) {
+          console.error("Gagal simpan belanjaan ke Supabase:", shopErr);
+        }
+      } else {
+        await supabase.from("shopping_items").delete().eq("user_id", userId);
       }
 
       // 3. Upsert User Metrics
